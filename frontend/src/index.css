@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=Public+Sans:wght@400;500;600;700;800&display=swap');
+
+@theme {
+  --color-ink: #1B140E;
+  --color-night: #241A12;
+  --color-night-2: #2E2115;
+  --color-ember: #B23A2E;
+  --color-ember-light: #D65C43;
+  --color-gold: #C9932F;
+  --color-gold-light: #E7B85C;
+  --color-gold-pale: #F4E3BC;
+  --color-palm: #2F5D3A;
+  --color-palm-light: #4A8659;
+  --color-parchment: #FBF6EC;
+  --color-parchment-2: #F3EAD3;
+
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Public Sans', sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-parchment);
+  color: var(--color-ink);
+}
+
+h1, h2, h3, .font-display { font-family: var(--font-display); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+.flame-flicker {
+  animation: flicker 3.2s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+@keyframes flicker {
+  0%, 100% { transform: scaleY(1) rotate(0deg); }
+  25% { transform: scaleY(1.04) rotate(-1deg); }
+  50% { transform: scaleY(0.98) rotate(0.5deg); }
+  75% { transform: scaleY(1.03) rotate(1deg); }
+}
+
+.grain-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}

@@ -1,0 +1,22 @@
+{
+  "name": "sfl-fihnec-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "import-excel": "node scripts/import_excel.js",
+    "create-admin": "node scripts/create_admin.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0",
+    "xlsx": "^0.18.5"
+  }
+}
