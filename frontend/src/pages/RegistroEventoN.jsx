@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import BotonVolver from '../components/BotonVolver';
 
 export default function RegistroEventoN() {
   const { orden } = useParams();
@@ -32,6 +33,7 @@ export default function RegistroEventoN() {
   if (orden === '1') {
     return (
       <div className="mx-auto max-w-lg px-5 py-24 text-center">
+        <BotonVolver />
         <p className="text-ink/60">El Nivel I requiere el formulario completo.</p>
         <Link to="/registro/1" className="mt-4 inline-block rounded-full bg-ink px-6 py-2.5 font-semibold text-parchment">Ir al formulario</Link>
       </div>
@@ -41,6 +43,7 @@ export default function RegistroEventoN() {
   if (evento && !evento.abierto) {
     return (
       <div className="mx-auto max-w-lg px-5 py-24 text-center">
+        <BotonVolver />
         <p className="text-5xl">🔒</p>
         <h1 className="mt-4 font-display text-2xl font-bold text-ink">Registro cerrado</h1>
         <p className="mt-3 text-ink/60">El registro para "{evento.nombre}" no está disponible en este momento.</p>
@@ -50,6 +53,7 @@ export default function RegistroEventoN() {
 
   return (
     <div className="mx-auto max-w-md px-5 py-24">
+      <BotonVolver />
       <p className="text-center text-sm font-semibold uppercase tracking-widest text-gold">Nivel {orden}</p>
       <h1 className="mt-1 text-center font-display text-3xl font-bold text-ink">{evento ? evento.nombre : 'Cargando…'}</h1>
       <p className="mt-2 text-center text-ink/60">Ingresa tu número de identidad (DNI) para verificar tu habilitación e inscribirte.</p>

@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import PDFDocument from 'pdfkit';
+import xlsx from 'xlsx';
 import { query } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
+import { normalizarNombre } from '../texto.js';
 
 const router = Router();
 router.use(requireAuth); // todas las rutas de admin requieren sesión
@@ -47,7 +50,7 @@ router.get('/participantes/:id', async (req, res) => {
   const { rows } = await query('SELECT * FROM participantes WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
   const insc = await query(
-    `SELECT e.orden, e.nombre, i.registrado_en, i.origen FROM inscripciones i
+    `SELECT e.orden, e.nombre, i.registrado_en, i.fecha_graduacion, i.origen FROM inscripciones i
      JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = $1 ORDER BY e.orden`,
     [req.params.id]
   );
@@ -65,6 +68,9 @@ const CAMPOS_PARTICIPANTE = [
 router.post('/participantes', requireRole('admin'), async (req, res) => {
   const b = req.body || {};
   if (!b.nombre_completo || !b.dni) return res.status(400).json({ error: 'Nombre y DNI son obligatorios.' });
+  if (b.nombre_completo) b.nombre_completo = normalizarNombre(b.nombre_completo);
+  if (b.contacto_emergencia_nombre) b.contacto_emergencia_nombre = normalizarNombre(b.contacto_emergencia_nombre);
+  if (b.capitulo) b.capitulo = normalizarNombre(b.capitulo);
   const cols = CAMPOS_PARTICIPANTE.filter(c => b[c] !== undefined);
   const vals = cols.map(c => b[c]);
   const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
@@ -83,6 +89,9 @@ router.post('/participantes', requireRole('admin'), async (req, res) => {
 // PUT /api/admin/participantes/:id - solo admin
 router.put('/participantes/:id', requireRole('admin'), async (req, res) => {
   const b = req.body || {};
+  if (b.nombre_completo) b.nombre_completo = normalizarNombre(b.nombre_completo);
+  if (b.contacto_emergencia_nombre) b.contacto_emergencia_nombre = normalizarNombre(b.contacto_emergencia_nombre);
+  if (b.capitulo) b.capitulo = normalizarNombre(b.capitulo);
   const cols = CAMPOS_PARTICIPANTE.filter(c => b[c] !== undefined);
   if (cols.length === 0) return res.status(400).json({ error: 'Nada para actualizar.' });
   const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
@@ -244,7 +253,123 @@ router.delete('/usuarios/:id', requireRole('admin'), async (req, res) => {
   res.json({ mensaje: 'Usuario eliminado.' });
 });
 
+// PUT /api/admin/participantes/:id/inscripciones/:orden/graduacion - fijar/quitar fecha de graduación
+router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('admin'), async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const { fecha_graduacion } = req.body || {};
+  const { rowCount } = await query(
+    `UPDATE inscripciones SET fecha_graduacion = $1
+     WHERE participante_id = $2 AND evento_id = (SELECT id FROM eventos WHERE orden = $3)`,
+    [fecha_graduacion || null, req.params.id, orden]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'Inscripción no encontrada.' });
+  res.json({ mensaje: fecha_graduacion ? 'Fecha de graduación guardada.' : 'Fecha de graduación eliminada.' });
+});
+
+/* -------------------------------- DIPLOMAS -------------------------------- */
+
+// GET /api/admin/diplomas/:orden -> lista de participantes registrados en ese nivel
+router.get('/diplomas/:orden', async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
+  const evento = evRes.rows[0];
+  if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
+
+  const { rows } = await query(
+    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec, i.registrado_en, i.fecha_graduacion
+     FROM inscripciones i
+     JOIN participantes p ON p.id = i.participante_id
+     WHERE i.evento_id = $1
+     ORDER BY p.nombre_completo ASC`,
+    [evento.id]
+  );
+  res.json({ evento, total: rows.length, participantes: rows });
+});
+
+// GET /api/admin/diplomas/:orden/excel -> descarga .xlsx con Numero, Nombre, Capítulo, Cargo
+router.get('/diplomas/:orden/excel', async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
+  const evento = evRes.rows[0];
+  if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
+
+  const { rows } = await query(
+    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec
+     FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
+     WHERE i.evento_id = $1 ORDER BY p.nombre_completo ASC`,
+    [evento.id]
+  );
+
+  const datos = rows.map((r, i) => ({
+    'Número': i + 1,
+    'Nombre Completo': r.nombre_completo,
+    'Capítulo': r.capitulo || '',
+    'Cargo': r.cargo_fihnec || ''
+  }));
+
+  const hoja = xlsx.utils.json_to_sheet(datos);
+  hoja['!cols'] = [{ wch: 8 }, { wch: 36 }, { wch: 26 }, { wch: 30 }];
+  const libro = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(libro, hoja, `Diplomas ${evento.codigo}`);
+  const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="diplomas_${evento.codigo}.xlsx"`);
+  res.send(buffer);
+});
+
+// GET /api/admin/diplomas/:orden/pdf -> descarga PDF con la misma lista
+router.get('/diplomas/:orden/pdf', async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
+  const evento = evRes.rows[0];
+  if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
+
+  const { rows } = await query(
+    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec
+     FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
+     WHERE i.evento_id = $1 ORDER BY p.nombre_completo ASC`,
+    [evento.id]
+  );
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="diplomas_${evento.codigo}.pdf"`);
+
+  const doc = new PDFDocument({ size: 'letter', margin: 40, layout: 'landscape' });
+  doc.pipe(res);
+
+  doc.fontSize(16).font('Helvetica-Bold').text('FIHNEC · Seminario para la Formación de Líderes', { align: 'center' });
+  doc.fontSize(12).font('Helvetica').text(evento.nombre, { align: 'center' });
+  doc.moveDown(1);
+
+  const colX = [50, 100, 420, 620];
+  const colW = [50, 300, 190, 170];
+  const y0 = doc.y;
+  doc.font('Helvetica-Bold').fontSize(10);
+  doc.text('Número', colX[0], y0, { width: colW[0] });
+  doc.text('Nombre Completo', colX[1], y0, { width: colW[1] });
+  doc.text('Capítulo', colX[2], y0, { width: colW[2] });
+  doc.text('Cargo', colX[3], y0, { width: colW[3] });
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(762, doc.y).strokeColor('#cccccc').stroke();
+  doc.moveDown(0.3);
+
+  doc.font('Helvetica').fontSize(10);
+  rows.forEach((r, i) => {
+    if (doc.y > 500) { doc.addPage({ size: 'letter', margin: 40, layout: 'landscape' }); doc.y = 40; }
+    const y = doc.y;
+    doc.text(String(i + 1), colX[0], y, { width: colW[0] });
+    doc.text(r.nombre_completo, colX[1], y, { width: colW[1] });
+    doc.text(r.capitulo || '—', colX[2], y, { width: colW[2] });
+    doc.text(r.cargo_fihnec || '—', colX[3], y, { width: colW[3] });
+    doc.moveDown(0.6);
+  });
+
+  doc.end();
+});
+
 /* ------------------------------ EXPORTAR CSV ------------------------------ */
+
 
 router.get('/exportar/participantes.csv', async (req, res) => {
   const { rows } = await query(`

@@ -12,6 +12,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   const [form, setForm] = useState(participante);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  const [guardandoGraduacion, setGuardandoGraduacion] = useState(null);
 
   const guardar = async () => {
     setGuardando(true); setError('');
@@ -31,6 +32,17 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
         eventos_inscritos: inscrito ? f.eventos_inscritos.filter(o => o !== orden) : [...(f.eventos_inscritos || []), orden]
       }));
     } catch (err) { setError(mensajeError(err)); }
+  };
+
+  const guardarGraduacion = async (orden, fecha) => {
+    setGuardandoGraduacion(orden);
+    try {
+      await api.put(`/admin/participantes/${participante.id}/inscripciones/${orden}/graduacion`, { fecha_graduacion: fecha || null });
+      setForm(f => ({
+        ...f,
+        inscripciones: f.inscripciones.map(i => i.orden === orden ? { ...i, fecha_graduacion: fecha || null } : i)
+      }));
+    } catch (err) { setError(mensajeError(err)); } finally { setGuardandoGraduacion(null); }
   };
 
   return (
@@ -75,6 +87,33 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
             })}
           </div>
         </div>
+
+        {form.inscripciones && form.inscripciones.length > 0 && (
+          <div className="mt-5">
+            <p className="mb-2 text-sm font-medium text-ink/70">Fechas de registro y graduación</p>
+            <div className="space-y-2">
+              {form.inscripciones.map(insc => (
+                <div key={insc.orden} className="flex flex-wrap items-center gap-3 rounded-lg border border-ink/10 px-3 py-2 text-sm">
+                  <span className="w-20 shrink-0 font-semibold text-ink">Nivel {insc.orden}</span>
+                  <span className="text-ink/50">
+                    Registrado: {new Date(insc.registrado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </span>
+                  <span className="ml-auto flex items-center gap-2 text-ink/60">
+                    Graduación:
+                    <input
+                      type="date"
+                      disabled={soloLectura}
+                      defaultValue={insc.fecha_graduacion ? insc.fecha_graduacion.slice(0, 10) : ''}
+                      onBlur={e => guardarGraduacion(insc.orden, e.target.value)}
+                      className="rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
+                    />
+                    {guardandoGraduacion === insc.orden && <span className="text-xs text-gold">Guardando…</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {error && <p className="mt-4 rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
 

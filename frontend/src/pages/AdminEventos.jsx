@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 import api, { mensajeError } from '../api';
 
-function paraInputDatetime(v) {
+function fechaParaInput(v) {
   if (!v) return '';
   const d = new Date(v);
   const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function horaParaInput(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function AdminEventos() {
@@ -15,7 +21,11 @@ export default function AdminEventos() {
   const [guardandoId, setGuardandoId] = useState(null);
   const [mensajes, setMensajes] = useState({});
 
-  const cargar = () => api.get('/admin/eventos').then(r => setEventos(r.data));
+  const cargar = () => api.get('/admin/eventos').then(r => setEventos(r.data.map(ev => ({
+    ...ev,
+    _fechaLimite: fechaParaInput(ev.fecha_limite_registro),
+    _horaLimite: horaParaInput(ev.fecha_limite_registro) || '23:59',
+  }))));
   useEffect(() => { cargar(); }, []);
 
   const actualizarCampo = (id, campo, valor) => {
@@ -26,10 +36,13 @@ export default function AdminEventos() {
     setGuardandoId(ev.id);
     setMensajes(m => ({ ...m, [ev.id]: '' }));
     try {
+      const fechaLimiteCompleta = ev._fechaLimite
+        ? new Date(`${ev._fechaLimite}T${ev._horaLimite || '23:59'}:00`).toISOString()
+        : null;
       await api.put(`/admin/eventos/${ev.orden}`, {
         nombre: ev.nombre, descripcion: ev.descripcion, fecha_evento: ev.fecha_evento || null,
         hora_evento: ev.hora_evento, lugar: ev.lugar,
-        fecha_limite_registro: ev.fecha_limite_registro || null,
+        fecha_limite_registro: fechaLimiteCompleta,
         activo: ev.activo, cupo_maximo: ev.cupo_maximo || null
       });
       setMensajes(m => ({ ...m, [ev.id]: '✓ Guardado' }));
@@ -44,7 +57,7 @@ export default function AdminEventos() {
   return (
     <div>
       <h1 className="font-display text-2xl font-bold text-ink">Configuración de eventos</h1>
-      <p className="text-sm text-ink/50">Define fechas, lugar y controla la apertura o cierre del registro de cada nivel.</p>
+      <p className="text-sm text-ink/50">Define fecha, hora, lugar y controla la apertura o cierre del registro de cada nivel.</p>
 
       <div className="mt-6 space-y-5">
         {eventos.map(ev => (
@@ -64,32 +77,47 @@ export default function AdminEventos() {
               </label>
             </div>
 
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="block text-sm">
-                <span className="mb-1 block text-ink/60">Fecha del evento</span>
-                <input disabled={soloLectura} type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
-                  value={ev.fecha_evento ? ev.fecha_evento.slice(0, 10) : ''} onChange={e => actualizarCampo(ev.id, 'fecha_evento', e.target.value)} />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-ink/60">Hora</span>
-                <input disabled={soloLectura} className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5" placeholder="8:00 AM"
-                  value={ev.hora_evento || ''} onChange={e => actualizarCampo(ev.id, 'hora_evento', e.target.value)} />
-              </label>
-              <label className="block text-sm sm:col-span-2">
-                <span className="mb-1 block text-ink/60">Lugar</span>
-                <input disabled={soloLectura} className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
-                  value={ev.lugar || ''} onChange={e => actualizarCampo(ev.id, 'lugar', e.target.value)} />
-              </label>
-              <label className="block text-sm sm:col-span-2">
-                <span className="mb-1 block text-ink/60">Fecha y hora tope de registro</span>
-                <input disabled={soloLectura} type="datetime-local" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
-                  value={paraInputDatetime(ev.fecha_limite_registro)} onChange={e => actualizarCampo(ev.id, 'fecha_limite_registro', e.target.value)} />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-ink/60">Cupo máximo (opcional)</span>
-                <input disabled={soloLectura} type="number" min="0" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
-                  value={ev.cupo_maximo || ''} onChange={e => actualizarCampo(ev.id, 'cupo_maximo', e.target.value)} />
-              </label>
+            <div className="mt-5 rounded-xl bg-parchment-2 p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink/50">📅 Cuándo es el evento</p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Fecha</span>
+                  <input disabled={soloLectura} type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev.fecha_evento ? ev.fecha_evento.slice(0, 10) : ''} onChange={e => actualizarCampo(ev.id, 'fecha_evento', e.target.value)} />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Hora</span>
+                  <input disabled={soloLectura} type="time" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev.hora_evento || ''} onChange={e => actualizarCampo(ev.id, 'hora_evento', e.target.value)} />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Lugar</span>
+                  <input disabled={soloLectura} className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev.lugar || ''} onChange={e => actualizarCampo(ev.id, 'lugar', e.target.value)} />
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl bg-ember/5 p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ember">⏰ Hasta cuándo se puede registrar la gente</p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Fecha tope</span>
+                  <input disabled={soloLectura} type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev._fechaLimite} onChange={e => actualizarCampo(ev.id, '_fechaLimite', e.target.value)} />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Hora tope</span>
+                  <input disabled={soloLectura} type="time" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev._horaLimite} onChange={e => actualizarCampo(ev.id, '_horaLimite', e.target.value)} />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Cupo máximo (opcional)</span>
+                  <input disabled={soloLectura} type="number" min="0" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev.cupo_maximo || ''} onChange={e => actualizarCampo(ev.id, 'cupo_maximo', e.target.value)} />
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-ink/40">Después de esta fecha y hora, el botón de inscripción se bloquea automáticamente para este nivel.</p>
             </div>
 
             <label className="mt-4 block text-sm">

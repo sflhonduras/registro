@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import BotonVolver from '../components/BotonVolver';
+import CampoBuscable from '../components/CampoBuscable';
+import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
 
 const VACIO = {
   nombre_completo: '', dni: '', celular: '', capitulo: '', zona: '', departamento: '', municipio: '',
-  cargo_fihnec: '', estado_civil: '', hijos_cantidad: '', comparte_testimonio: '', tiempo_comparte_testimonio: '',
+  cargo_fihnec: '', estado_civil: '', hijos_cantidad: '', comparte_testimonio: '',
+  tiempo_comparte_cantidad: '', tiempo_comparte_unidad: 'Meses',
   ha_recibido_sael: '', cantidad_saeles: '', contacto_emergencia_nombre: '', contacto_emergencia_telefono: '', observacion: ''
 };
 
-function Campo({ label, children, requerido }) {
+function Campo({ label, children, requerido = true }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-medium text-ink/80">
@@ -20,6 +24,7 @@ function Campo({ label, children, requerido }) {
 }
 
 const claseInput = "w-full rounded-lg border border-ink/15 bg-white px-3.5 py-2.5 text-ink outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20";
+const claseInputDeshabilitado = "w-full rounded-lg border border-ink/10 bg-ink/5 px-3.5 py-2.5 text-ink/40 outline-none cursor-not-allowed";
 
 export default function RegistroEvento1() {
   const [form, setForm] = useState(VACIO);
@@ -35,12 +40,32 @@ export default function RegistroEvento1() {
 
   const set = (campo) => (e) => setForm(f => ({ ...f, [campo]: e.target.value }));
 
+  const soloNumeros = (campo, maxLen) => (e) => {
+    const v = e.target.value.replace(/[^\d]/g, '').slice(0, maxLen);
+    setForm(f => ({ ...f, [campo]: v }));
+  };
+
+  const cambiarDepartamento = (e) => {
+    setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  };
+
+  const municipiosDisponibles = useMemo(
+    () => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [],
+    [form.departamento]
+  );
+
   const enviar = async (e) => {
     e.preventDefault();
     setError('');
     setEnviando(true);
     try {
-      const r = await api.post('/registro/evento1', form);
+      const payload = {
+        ...form,
+        tiempo_comparte_testimonio: form.comparte_testimonio === 'Si'
+          ? `${form.tiempo_comparte_cantidad} ${form.tiempo_comparte_unidad}`
+          : null
+      };
+      const r = await api.post('/registro/evento1', payload);
       setExito(r.data.mensaje);
     } catch (err) {
       setError(mensajeError(err));
@@ -65,6 +90,7 @@ export default function RegistroEvento1() {
   if (evento && !evento.abierto) {
     return (
       <div className="mx-auto max-w-lg px-5 py-24 text-center">
+        <BotonVolver />
         <p className="text-5xl">🔒</p>
         <h1 className="mt-4 font-display text-2xl font-bold text-ink">Registro cerrado</h1>
         <p className="mt-3 text-ink/60">El registro para el SFL Nivel I no está disponible en este momento.</p>
@@ -74,78 +100,131 @@ export default function RegistroEvento1() {
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-14">
+      <BotonVolver />
       <p className="text-sm font-semibold uppercase tracking-widest text-gold">Nivel I · Mi Relación con Dios</p>
       <h1 className="mt-1 font-display text-3xl font-bold text-ink">Formulario de inscripción</h1>
-      <p className="mt-2 text-ink/60">Completa tus datos una única vez. Servirán para tu registro en los siguientes niveles del SFL.</p>
+      <p className="mt-2 text-ink/60">Completa tus datos una única vez. Todos los campos son obligatorios, salvo "Observaciones".</p>
 
       <form onSubmit={enviar} className="mt-8 space-y-6">
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <Campo label="Nombre completo" requerido>
+            <Campo label="Nombre completo">
               <input required className={claseInput} value={form.nombre_completo} onChange={set('nombre_completo')} placeholder="Ej. Juan Carlos Pérez López" />
             </Campo>
           </div>
-          <Campo label="Número de identidad (DNI)" requerido>
-            <input required className={claseInput} value={form.dni} onChange={set('dni')} placeholder="0801-1990-00000" />
+          <Campo label="Número de identidad (DNI)">
+            <input required inputMode="numeric" className={claseInput} value={form.dni} onChange={soloNumeros('dni', 13)} placeholder="0801199000000" />
           </Campo>
           <Campo label="Número de celular">
-            <input className={claseInput} value={form.celular} onChange={set('celular')} placeholder="9999-9999" />
+            <input required inputMode="numeric" minLength={8} maxLength={8} className={claseInput}
+              value={form.celular} onChange={soloNumeros('celular', 8)} placeholder="99999999" />
+            {form.celular && form.celular.length !== 8 && (
+              <p className="mt-1 text-xs text-ember">Debe tener exactamente 8 dígitos.</p>
+            )}
           </Campo>
           <Campo label="Capítulo al que pertenece">
-            <input className={claseInput} value={form.capitulo} onChange={set('capitulo')} />
+            <CampoBuscable id="capitulo" opciones={[]} required value={form.capitulo} onChange={set('capitulo')} placeholder="Escribe el nombre de tu capítulo" />
           </Campo>
           <Campo label="Zona">
-            <input className={claseInput} value={form.zona} onChange={set('zona')} />
+            <select required className={claseInput} value={form.zona} onChange={set('zona')}>
+              <option value="">Selecciona…</option>
+              {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+            </select>
           </Campo>
           <Campo label="Departamento">
-            <input className={claseInput} value={form.departamento} onChange={set('departamento')} />
+            <select required className={claseInput} value={form.departamento} onChange={cambiarDepartamento}>
+              <option value="">Selecciona…</option>
+              {DEPARTAMENTOS_HONDURAS.map(d => <option key={d}>{d}</option>)}
+            </select>
           </Campo>
           <Campo label="Municipio">
-            <input className={claseInput} value={form.municipio} onChange={set('municipio')} />
+            <select required className={claseInput} value={form.municipio} onChange={set('municipio')} disabled={!form.departamento}>
+              <option value="">{form.departamento ? 'Selecciona…' : 'Primero elige un departamento'}</option>
+              {municipiosDisponibles.map(m => <option key={m}>{m}</option>)}
+            </select>
           </Campo>
           <div className="sm:col-span-2">
             <Campo label="Cargo en FIHNEC">
-              <input className={claseInput} value={form.cargo_fihnec} onChange={set('cargo_fihnec')} />
+              <select required className={claseInput} value={form.cargo_fihnec} onChange={set('cargo_fihnec')}>
+                <option value="">Selecciona…</option>
+                {CARGOS_FIHNEC.map(c => <option key={c}>{c}</option>)}
+              </select>
             </Campo>
           </div>
           <Campo label="Estado civil">
-            <select className={claseInput} value={form.estado_civil} onChange={set('estado_civil')}>
+            <select required className={claseInput} value={form.estado_civil} onChange={set('estado_civil')}>
               <option value="">Selecciona…</option>
               {['Soltero', 'Casado', 'Unión libre', 'Divorciado', 'Viudo'].map(o => <option key={o}>{o}</option>)}
             </select>
           </Campo>
           <Campo label="Cantidad de hijos">
-            <input type="number" min="0" className={claseInput} value={form.hijos_cantidad} onChange={set('hijos_cantidad')} />
+            <input required type="number" min="0" max="30" className={claseInput} value={form.hijos_cantidad} onChange={set('hijos_cantidad')} />
           </Campo>
+
           <Campo label="¿Comparte testimonio?">
-            <select className={claseInput} value={form.comparte_testimonio} onChange={set('comparte_testimonio')}>
+            <select required className={claseInput} value={form.comparte_testimonio}
+              onChange={e => setForm(f => ({ ...f, comparte_testimonio: e.target.value, tiempo_comparte_cantidad: '' }))}>
               <option value="">Selecciona…</option>
               <option value="Si">Sí</option>
               <option value="No">No</option>
             </select>
           </Campo>
-          <Campo label="¿Hace cuánto tiempo comparte testimonio?">
-            <input className={claseInput} value={form.tiempo_comparte_testimonio} onChange={set('tiempo_comparte_testimonio')} />
+          <Campo label="¿Hace cuánto tiempo?" requerido={form.comparte_testimonio === 'Si'}>
+            <div className="flex gap-2">
+              <input
+                type="number" min="1" max="999"
+                disabled={form.comparte_testimonio !== 'Si'}
+                required={form.comparte_testimonio === 'Si'}
+                className={form.comparte_testimonio === 'Si' ? claseInput : claseInputDeshabilitado}
+                value={form.tiempo_comparte_cantidad}
+                onChange={set('tiempo_comparte_cantidad')}
+                placeholder="Ej. 6"
+              />
+              <select
+                disabled={form.comparte_testimonio !== 'Si'}
+                className={form.comparte_testimonio === 'Si' ? claseInput : claseInputDeshabilitado}
+                value={form.tiempo_comparte_unidad}
+                onChange={set('tiempo_comparte_unidad')}
+              >
+                <option>Días</option>
+                <option>Meses</option>
+                <option>Años</option>
+              </select>
+            </div>
           </Campo>
+
           <Campo label="¿Ha recibido SAEL?">
-            <select className={claseInput} value={form.ha_recibido_sael} onChange={set('ha_recibido_sael')}>
+            <select required className={claseInput} value={form.ha_recibido_sael}
+              onChange={e => setForm(f => ({ ...f, ha_recibido_sael: e.target.value, cantidad_saeles: '' }))}>
               <option value="">Selecciona…</option>
               <option value="Si">Sí</option>
               <option value="No">No</option>
             </select>
           </Campo>
-          <Campo label="¿Cuántos SAELES ha recibido?">
-            <input type="number" min="0" className={claseInput} value={form.cantidad_saeles} onChange={set('cantidad_saeles')} />
+          <Campo label="¿Cuántos SAELES ha recibido?" requerido={form.ha_recibido_sael === 'Si'}>
+            <input
+              type="number" min="1" max="50"
+              disabled={form.ha_recibido_sael !== 'Si'}
+              required={form.ha_recibido_sael === 'Si'}
+              className={form.ha_recibido_sael === 'Si' ? claseInput : claseInputDeshabilitado}
+              value={form.cantidad_saeles}
+              onChange={set('cantidad_saeles')}
+            />
           </Campo>
+
           <Campo label="Nombre del contacto de emergencia">
-            <input className={claseInput} value={form.contacto_emergencia_nombre} onChange={set('contacto_emergencia_nombre')} />
+            <input required className={claseInput} value={form.contacto_emergencia_nombre} onChange={set('contacto_emergencia_nombre')} />
           </Campo>
           <Campo label="Teléfono del contacto de emergencia">
-            <input className={claseInput} value={form.contacto_emergencia_telefono} onChange={set('contacto_emergencia_telefono')} />
+            <input required inputMode="numeric" minLength={8} maxLength={8} className={claseInput}
+              value={form.contacto_emergencia_telefono} onChange={soloNumeros('contacto_emergencia_telefono', 8)} placeholder="99999999" />
+            {form.contacto_emergencia_telefono && form.contacto_emergencia_telefono.length !== 8 && (
+              <p className="mt-1 text-xs text-ember">Debe tener exactamente 8 dígitos.</p>
+            )}
           </Campo>
           <div className="sm:col-span-2">
-            <Campo label="Observaciones">
-              <textarea rows={3} className={claseInput} value={form.observacion} onChange={set('observacion')} />
+            <Campo label="Observaciones" requerido={false}>
+              <textarea rows={3} className={claseInput} value={form.observacion} onChange={set('observacion')} placeholder="Opcional" />
             </Campo>
           </div>
         </div>

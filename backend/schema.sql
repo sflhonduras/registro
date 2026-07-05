@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS inscripciones (
   participante_id  INTEGER NOT NULL REFERENCES participantes(id) ON DELETE CASCADE,
   evento_id        INTEGER NOT NULL REFERENCES eventos(id) ON DELETE CASCADE,
   registrado_en    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  fecha_graduacion DATE,
   origen           TEXT NOT NULL DEFAULT 'web',        -- 'web' | 'importado'
   UNIQUE(participante_id, evento_id)
 );

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
+import { normalizarNombre, soloDigitos } from '../texto.js';
 
 const router = Router();
 
@@ -29,13 +30,47 @@ router.get('/eventos/:orden/estado', async (req, res) => {
 // POST /api/registro/evento1  -> inscripción completa (crea participante + inscripción)
 router.post('/registro/evento1', async (req, res) => {
   const b = req.body || {};
-  const requeridos = ['nombre_completo', 'dni'];
-  for (const campo of requeridos) {
-    if (!b[campo] || String(b[campo]).trim() === '') {
+  const requeridosBase = [
+    'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
+    'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio',
+    'ha_recibido_sael', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono'
+  ];
+  for (const campo of requeridosBase) {
+    if (b[campo] === undefined || b[campo] === null || String(b[campo]).trim() === '') {
       return res.status(400).json({ error: `El campo "${campo}" es obligatorio.` });
     }
   }
-  const dni = String(b.dni).trim();
+
+  // Campos condicionales: solo obligatorios si la respuesta anterior fue "Si"
+  if (b.comparte_testimonio === 'Si' && !String(b.tiempo_comparte_testimonio || '').trim()) {
+    return res.status(400).json({ error: 'Indica hace cuánto tiempo comparte testimonio.' });
+  }
+  if (b.ha_recibido_sael === 'Si' && !String(b.cantidad_saeles || '').trim()) {
+    return res.status(400).json({ error: 'Indica cuántos SAELES ha recibido.' });
+  }
+
+  // Validación numérica: celular y teléfono de emergencia deben ser 8 dígitos (Honduras)
+  const celular = soloDigitos(b.celular);
+  const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
+  if (!celular || celular.length !== 8) {
+    return res.status(400).json({ error: 'El número de celular debe tener exactamente 8 dígitos.' });
+  }
+  if (!telefonoEmergencia || telefonoEmergencia.length !== 8) {
+    return res.status(400).json({ error: 'El teléfono del contacto de emergencia debe tener exactamente 8 dígitos.' });
+  }
+  const hijosCantidad = parseInt(b.hijos_cantidad, 10);
+  if (Number.isNaN(hijosCantidad) || hijosCantidad < 0) {
+    return res.status(400).json({ error: 'La cantidad de hijos debe ser un número válido.' });
+  }
+  let cantidadSaeles = null;
+  if (b.ha_recibido_sael === 'Si') {
+    cantidadSaeles = parseInt(b.cantidad_saeles, 10);
+    if (Number.isNaN(cantidadSaeles) || cantidadSaeles < 0) {
+      return res.status(400).json({ error: 'La cantidad de SAELES debe ser un número válido.' });
+    }
+  }
+
+  const dni = soloDigitos(b.dni) || String(b.dni).trim();
 
   const evRes = await query('SELECT * FROM eventos WHERE orden = 1');
   const evento = evRes.rows[0];
@@ -59,12 +94,12 @@ router.post('/registro/evento1', async (req, res) => {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING id`,
     [
-      b.nombre_completo, dni, b.celular || null, b.capitulo || null, b.zona || null,
-      b.departamento || null, b.municipio || null, b.cargo_fihnec || null, b.estado_civil || null,
-      b.hijos_cantidad ? parseInt(b.hijos_cantidad, 10) : null, b.comparte_testimonio || null,
-      b.tiempo_comparte_testimonio || null, b.ha_recibido_sael || null,
-      b.cantidad_saeles ? parseInt(b.cantidad_saeles, 10) : null,
-      b.contacto_emergencia_nombre || null, b.contacto_emergencia_telefono || null, b.observacion || null
+      normalizarNombre(b.nombre_completo), dni, celular, normalizarNombre(b.capitulo), b.zona,
+      b.departamento, b.municipio, b.cargo_fihnec, b.estado_civil,
+      hijosCantidad, b.comparte_testimonio,
+      b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
+      b.ha_recibido_sael, cantidadSaeles,
+      normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null
     ]
   );
   const participanteId = insertParticipante.rows[0].id;
@@ -83,7 +118,7 @@ router.post('/registro/:orden', async (req, res) => {
   if (![2, 3, 4].includes(orden)) {
     return res.status(400).json({ error: 'Ruta de registro inválida.' });
   }
-  const dni = String((req.body || {}).dni || '').trim();
+  const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
   if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI).' });
 
   const evActualRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);

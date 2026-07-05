@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
 
 export default function AdminLogin() {
@@ -27,7 +27,10 @@ export default function AdminLogin() {
   return (
     <div className="flex min-h-[80vh] items-center justify-center bg-night px-5">
       <form onSubmit={entrar} className="w-full max-w-sm rounded-2xl border border-gold/20 bg-night-2 p-8 shadow-2xl">
-        <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-gold-light">Acceso restringido</p>
+        <Link to="/" className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-parchment/50 transition hover:text-gold-light">
+          <span aria-hidden>←</span> Volver al sitio principal
+        </Link>
+        <p className="mt-4 text-center text-xs font-semibold uppercase tracking-[0.2em] text-gold-light">Acceso restringido</p>
         <h1 className="mt-2 text-center font-display text-2xl font-bold text-parchment">Panel administrativo SFL</h1>
         <div className="mt-6 space-y-4">
           <input
