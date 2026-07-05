@@ -105,8 +105,8 @@ router.post('/registro/evento1', async (req, res) => {
   const participanteId = insertParticipante.rows[0].id;
 
   await query(
-    'INSERT INTO inscripciones (participante_id, evento_id, origen) VALUES ($1,$2,$3)',
-    [participanteId, evento.id, 'web']
+    'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
+    [participanteId, evento.id, 'web', evento.ciclo_actual]
   );
 
   res.status(201).json({ mensaje: 'Registro completado. ¡Bienvenido al SFL Nivel I!', participante_id: participanteId });
@@ -165,8 +165,8 @@ router.post('/registro/:orden', async (req, res) => {
   }
 
   await query(
-    'INSERT INTO inscripciones (participante_id, evento_id, origen) VALUES ($1,$2,$3)',
-    [participante.id, evActual.id, 'web']
+    'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
+    [participante.id, evActual.id, 'web', evActual.ciclo_actual]
   );
 
   res.status(201).json({

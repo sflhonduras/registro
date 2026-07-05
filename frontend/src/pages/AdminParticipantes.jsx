@@ -130,6 +130,88 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   );
 }
 
+function PanelExportarContacto() {
+  const [nivel, setNivel] = useState(1);
+  const [modo, setModo] = useState('ciclo'); // 'ciclo' | 'rango'
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [descargando, setDescargando] = useState(false);
+  const [error, setError] = useState('');
+
+  const descargar = async () => {
+    setError('');
+    if (modo === 'rango' && (!desde || !hasta)) {
+      setError('Elige la fecha de inicio y fin del rango.');
+      return;
+    }
+    setDescargando(true);
+    try {
+      const params = new URLSearchParams();
+      if (modo === 'ciclo') params.set('ciclo_actual', 'true');
+      else { params.set('desde', desde); params.set('hasta', hasta); }
+
+      const resp = await fetch(`${api.defaults.baseURL}/admin/exportar-contacto/${nivel}?${params}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
+      });
+      if (!resp.ok) throw new Error();
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `contactos_nivel_${nivel}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No se pudo generar el archivo.');
+    } finally {
+      setDescargando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+      <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
+      <p className="mt-1 text-sm text-ink/50">
+        Nombre completo, capítulo, teléfono, zona y cargo — de quienes se registraron a un nivel específico.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <label className="text-sm">
+          <span className="mb-1 block text-ink/60">Nivel</span>
+          <select value={nivel} onChange={e => setNivel(Number(e.target.value))} className="rounded-lg border border-ink/15 px-3 py-2">
+            {[1, 2, 3, 4].map(n => <option key={n} value={n}>Nivel {n}</option>)}
+          </select>
+        </label>
+
+        <label className="text-sm">
+          <span className="mb-1 block text-ink/60">¿Qué registros?</span>
+          <select value={modo} onChange={e => setModo(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2">
+            <option value="ciclo">Solo el evento actual (ciclo en curso)</option>
+            <option value="rango">Elegir un rango de fechas</option>
+          </select>
+        </label>
+
+        {modo === 'rango' && (
+          <>
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">Desde</span>
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2" />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">Hasta</span>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2" />
+            </label>
+          </>
+        )}
+
+        <button onClick={descargar} disabled={descargando}
+          className="rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light disabled:opacity-60">
+          {descargando ? 'Generando…' : '⬇ Descargar Excel'}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-ember">{error}</p>}
+    </div>
+  );
+}
+
 export default function AdminParticipantes() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const soloLectura = usuario?.rol !== 'admin';
@@ -182,6 +264,10 @@ export default function AdminParticipantes() {
             {[1, 2, 3, 4].map(n => <option key={n} value={n}>Inscritos en Nivel {n}</option>)}
           </select>
         </div>
+      </div>
+
+      <div className="mt-5">
+        <PanelExportarContacto />
       </div>
 
       <div className="mt-5 overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-sm">

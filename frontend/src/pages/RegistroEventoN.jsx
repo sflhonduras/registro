@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
 import BotonVolver from '../components/BotonVolver';
+import InfoEvento from '../components/InfoEvento';
+import ProximasFechas from '../components/ProximasFechas';
+import PromoWhatsApp from '../components/PromoWhatsApp';
 
 export default function RegistroEventoN() {
   const { orden } = useParams();
@@ -47,6 +50,7 @@ export default function RegistroEventoN() {
         <p className="text-5xl">🔒</p>
         <h1 className="mt-4 font-display text-2xl font-bold text-ink">Registro cerrado</h1>
         <p className="mt-3 text-ink/60">El registro para "{evento.nombre}" no está disponible en este momento.</p>
+        <ProximasFechas />
       </div>
     );
   }
@@ -57,11 +61,13 @@ export default function RegistroEventoN() {
       <p className="text-center text-sm font-semibold uppercase tracking-widest text-gold">Nivel {orden}</p>
       <h1 className="mt-1 text-center font-display text-3xl font-bold text-ink">{evento ? evento.nombre : 'Cargando…'}</h1>
       <p className="mt-2 text-center text-ink/60">Ingresa tu número de identidad (DNI) para verificar tu habilitación e inscribirte.</p>
+      {evento && <div className="mt-3 text-center"><InfoEvento evento={evento} /></div>}
 
       {exito ? (
         <div className="mt-8 rounded-2xl border border-palm/30 bg-palm/5 p-6 text-center">
           <p className="text-4xl">✅</p>
           <p className="mt-3 font-semibold text-palm">{exito}</p>
+          <PromoWhatsApp />
         </div>
       ) : (
         <form onSubmit={enviar} className="mt-8 space-y-4">
@@ -78,6 +84,8 @@ export default function RegistroEventoN() {
           </button>
         </form>
       )}
+
+      <ProximasFechas />
     </div>
   );
 }

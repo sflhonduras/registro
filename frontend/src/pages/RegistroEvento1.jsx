@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import api, { mensajeError } from '../api';
 import BotonVolver from '../components/BotonVolver';
 import CampoBuscable from '../components/CampoBuscable';
+import InfoEvento from '../components/InfoEvento';
+import ProximasFechas from '../components/ProximasFechas';
+import PromoWhatsApp from '../components/PromoWhatsApp';
 import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
 
 const VACIO = {
@@ -80,6 +83,8 @@ export default function RegistroEvento1() {
         <p className="text-5xl">🔥</p>
         <h1 className="mt-4 font-display text-2xl font-bold text-ink">{exito}</h1>
         <p className="mt-3 text-ink/60">Guarda tu número de identidad (DNI): lo necesitarás para inscribirte a los siguientes niveles.</p>
+        {evento && <div className="mt-4"><InfoEvento evento={evento} /></div>}
+        <PromoWhatsApp />
         <button onClick={() => nav('/')} className="mt-8 rounded-full bg-ink px-6 py-2.5 font-semibold text-parchment hover:bg-ember">
           Volver al inicio
         </button>
@@ -104,6 +109,8 @@ export default function RegistroEvento1() {
       <p className="text-sm font-semibold uppercase tracking-widest text-gold">Nivel I · Mi Relación con Dios</p>
       <h1 className="mt-1 font-display text-3xl font-bold text-ink">Formulario de inscripción</h1>
       <p className="mt-2 text-ink/60">Completa tus datos una única vez. Todos los campos son obligatorios, salvo "Observaciones".</p>
+      {evento && <div className="mt-3"><InfoEvento evento={evento} /></div>}
+      <ProximasFechas />
 
       <form onSubmit={enviar} className="mt-8 space-y-6">
         <div className="grid gap-5 sm:grid-cols-2">

@@ -9,7 +9,11 @@ import adminRoutes from './routes/admin.js';
 dotenv.config();
 const app = express();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+// Permite varios dominios separados por coma en CORS_ORIGIN (ej. dominio propio + subdominio de Netlify)
+const origenesPermitidos = (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim());
+app.use(cors({
+  origin: origenesPermitidos.includes('*') ? '*' : origenesPermitidos
+}));
 app.use(express.json());
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 });

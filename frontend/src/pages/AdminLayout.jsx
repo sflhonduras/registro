@@ -16,7 +16,7 @@ export default function AdminLayout() {
   const [totalRegistros, setTotalRegistros] = useState(null);
 
   useEffect(() => {
-    api.get('/admin/estadisticas').then(r => setTotalRegistros(r.data.total_participantes)).catch(() => {});
+    api.get('/admin/estadisticas').then(r => setTotalRegistros(r.data.total_ciclo_actual)).catch(() => {});
   }, []);
 
   const salir = () => {
@@ -50,7 +50,7 @@ export default function AdminLayout() {
         <p className="text-xs text-parchment/50">{usuario?.rol === 'admin' ? 'Administrador' : 'Consulta (solo lectura)'}</p>
 
         <div className="mt-5 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3">
-          <p className="text-xs uppercase tracking-wide text-gold-light">Total de registros</p>
+          <p className="text-xs uppercase tracking-wide text-gold-light">Registros del evento actual</p>
           <p className="font-display text-2xl font-bold text-parchment">{totalRegistros ?? '…'}</p>
         </div>
 

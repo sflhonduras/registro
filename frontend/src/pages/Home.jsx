@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
+import Contador from '../components/Contador';
+import InfoEvento from '../components/InfoEvento';
+import PromoWhatsApp from '../components/PromoWhatsApp';
 
 const ICONOS = ['🕊️', '🪞', '🤝', '🔥'];
 
@@ -13,6 +16,11 @@ export default function Home() {
       .then(r => setEventos(r.data))
       .catch(() => setError('No se pudo cargar la información de los eventos. Intenta recargar la página.'));
   }, []);
+
+  // Cuenta regresiva hacia el cierre de inscripción más próximo entre los niveles abiertos
+  const proximoCierre = eventos
+    ?.filter(ev => ev.abierto && ev.fecha_limite_registro)
+    .sort((a, b) => new Date(a.fecha_limite_registro) - new Date(b.fecha_limite_registro))[0];
 
   return (
     <div>
@@ -38,6 +46,13 @@ export default function Home() {
               Inscribirme al Nivel I
             </Link>
           </div>
+
+          {proximoCierre && (
+            <Contador
+              fechaObjetivo={proximoCierre.fecha_limite_registro}
+              etiqueta={`Cierre de inscripción · ${proximoCierre.nombre}`}
+            />
+          )}
         </div>
       </section>
 
@@ -74,11 +89,9 @@ export default function Home() {
                         {ev.abierto ? 'Registro abierto' : 'Registro cerrado'}
                       </span>
                     </div>
-                    {ev.fecha_evento && (
-                      <p className="mt-1 text-xs text-ink/50">
-                        📅 {new Date(ev.fecha_evento).toLocaleDateString('es-HN', { day: '2-digit', month: 'long', year: 'numeric' })}
-                      </p>
-                    )}
+                    <div className="mt-2">
+                      <InfoEvento evento={ev} compacto />
+                    </div>
                     <Link
                       to={`/registro/${ev.orden}`}
                       className={`mt-5 block rounded-full py-2.5 text-center text-sm font-semibold transition ${
@@ -115,6 +128,10 @@ export default function Home() {
               <p className="mt-2 font-semibold text-ink">Un nivel a la vez</p>
               <p className="mt-1 text-sm text-ink/60">Si aún no estás habilitado, el sistema te lo indicará y no podrás avanzar de paso.</p>
             </div>
+          </div>
+
+          <div className="mx-auto mt-10 max-w-xl">
+            <PromoWhatsApp />
           </div>
         </div>
       </section>

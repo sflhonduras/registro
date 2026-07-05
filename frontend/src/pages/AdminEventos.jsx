@@ -41,6 +41,7 @@ export default function AdminEventos() {
         : null;
       await api.put(`/admin/eventos/${ev.orden}`, {
         nombre: ev.nombre, descripcion: ev.descripcion, fecha_evento: ev.fecha_evento || null,
+        fecha_evento_fin: ev.fecha_evento_fin || null,
         hora_evento: ev.hora_evento, lugar: ev.lugar,
         fecha_limite_registro: fechaLimiteCompleta,
         activo: ev.activo, cupo_maximo: ev.cupo_maximo || null
@@ -51,6 +52,24 @@ export default function AdminEventos() {
       setMensajes(m => ({ ...m, [ev.id]: mensajeError(err) }));
     } finally {
       setGuardandoId(null);
+    }
+  };
+
+  const iniciarNuevoCiclo = async (ev) => {
+    const confirmado = confirm(
+      `¿Iniciar un nuevo ciclo para "${ev.nombre}"?\n\n` +
+      `Esto NO borra ningún dato — todo el historial se conserva. Pero a partir de ahora, ` +
+      `las estadísticas, el contador de registros y la lista de Diplomas de este nivel van a mostrar ` +
+      `solo las inscripciones nuevas, como si arrancaras de cero para el próximo evento.\n\n` +
+      `Úsalo cuando termines un evento y quieras empezar a contar desde cero para el siguiente.`
+    );
+    if (!confirmado) return;
+    try {
+      const { data } = await api.post(`/admin/eventos/${ev.orden}/nuevo-ciclo`);
+      setMensajes(m => ({ ...m, [ev.id]: data.mensaje }));
+      cargar();
+    } catch (err) {
+      setMensajes(m => ({ ...m, [ev.id]: mensajeError(err) }));
     }
   };
 
@@ -70,6 +89,7 @@ export default function AdminEventos() {
                   className="border-b border-transparent bg-transparent font-display text-lg font-semibold text-ink focus:border-gold outline-none disabled:bg-transparent"
                   value={ev.nombre} onChange={e => actualizarCampo(ev.id, 'nombre', e.target.value)}
                 />
+                <span className="rounded-full bg-ink/5 px-2.5 py-0.5 text-xs font-medium text-ink/50">Ciclo #{ev.ciclo_actual}</span>
               </div>
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" disabled={soloLectura} checked={ev.activo} onChange={e => actualizarCampo(ev.id, 'activo', e.target.checked)} />
@@ -79,11 +99,16 @@ export default function AdminEventos() {
 
             <div className="mt-5 rounded-xl bg-parchment-2 p-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink/50">📅 Cuándo es el evento</p>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-4">
                 <label className="block text-sm">
-                  <span className="mb-1 block text-ink/60">Fecha</span>
+                  <span className="mb-1 block text-ink/60">Fecha inicio</span>
                   <input disabled={soloLectura} type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
                     value={ev.fecha_evento ? ev.fecha_evento.slice(0, 10) : ''} onChange={e => actualizarCampo(ev.id, 'fecha_evento', e.target.value)} />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-ink/60">Fecha fin (opcional)</span>
+                  <input disabled={soloLectura} type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={ev.fecha_evento_fin ? ev.fecha_evento_fin.slice(0, 10) : ''} onChange={e => actualizarCampo(ev.id, 'fecha_evento_fin', e.target.value)} />
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1 block text-ink/60">Hora</span>
@@ -96,6 +121,7 @@ export default function AdminEventos() {
                     value={ev.lugar || ''} onChange={e => actualizarCampo(ev.id, 'lugar', e.target.value)} />
                 </label>
               </div>
+              <p className="mt-2 text-xs text-ink/40">Si dura varios días, deja "Fecha fin" para mostrar el rango completo (ej. "del 10 al 12 de julio").</p>
             </div>
 
             <div className="mt-4 rounded-xl bg-ember/5 p-4">
@@ -127,10 +153,14 @@ export default function AdminEventos() {
             </label>
 
             {!soloLectura && (
-              <div className="mt-4 flex items-center gap-3">
+              <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button onClick={() => guardar(ev)} disabled={guardandoId === ev.id}
                   className="rounded-full bg-ink px-5 py-2 text-sm font-semibold text-parchment hover:bg-ember disabled:opacity-60">
                   {guardandoId === ev.id ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+                <button onClick={() => iniciarNuevoCiclo(ev)} type="button"
+                  className="rounded-full border border-gold/40 px-5 py-2 text-sm font-semibold text-gold hover:bg-gold/10">
+                  🔄 Iniciar nuevo ciclo
                 </button>
                 {mensajes[ev.id] && <span className="text-sm text-ink/50">{mensajes[ev.id]}</span>}
               </div>

@@ -56,12 +56,29 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tarjeta titulo="Total de participantes" valor={datos.total_participantes} onClick={() => nav('/admin/participantes')} />
+        <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros desde siempre" onClick={() => nav('/admin/participantes')} />
         {datos.por_evento.map(e => (
-          <Tarjeta key={e.orden} titulo={`Nivel ${e.orden}`} valor={e.total_inscritos} nota={e.nombre}
+          <Tarjeta key={e.orden} titulo={`Nivel ${e.orden} · Ciclo #${e.ciclo_actual}`} valor={e.total_ciclo_actual}
+            nota={`${e.total_inscritos} en total histórico`}
             onClick={() => nav(`/admin/participantes?evento=${e.orden}`)} />
         ))}
       </div>
+      <a
+        href={`${api.defaults.baseURL}/admin/estadisticas/excel`}
+        onClick={(e) => {
+          e.preventDefault();
+          fetch(`${api.defaults.baseURL}/admin/estadisticas/excel`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
+          }).then(r => r.blob()).then(blob => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'estadisticas_sfl.xlsx'; a.click();
+          });
+        }}
+        className="inline-block rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light"
+      >
+        ⬇ Exportar estadísticas a Excel
+      </a>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">

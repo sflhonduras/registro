@@ -37,6 +37,40 @@ export default function AdminDiplomas() {
     }
   };
 
+  const imprimir = () => {
+    if (!datos) return;
+    const nombreNivel = NIVELES.find(n => n.orden === nivel)?.nombre || '';
+    const filas = datos.participantes.map((p, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.nombre_completo}</td>
+        <td>${p.capitulo || '—'}</td>
+        <td>${p.cargo_fihnec || '—'}</td>
+      </tr>`).join('');
+    const html = `
+      <html><head><title>Diplomas - ${nombreNivel}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 24px; }
+        h1 { font-size: 18px; margin-bottom: 2px; }
+        h2 { font-size: 14px; font-weight: normal; color: #555; margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; font-size: 12px; text-align: left; }
+        th { background: #f0ede4; }
+      </style></head>
+      <body>
+        <h1>FIHNEC · Seminario para la Formación de Líderes</h1>
+        <h2>${nombreNivel} — ${datos.total} participante(s)</h2>
+        <table>
+          <thead><tr><th>#</th><th>Nombre Completo</th><th>Capítulo</th><th>Cargo</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+        <script>window.onload = () => { window.print(); }</script>
+      </body></html>`;
+    const ventana = window.open('', '_blank');
+    ventana.document.write(html);
+    ventana.document.close();
+  };
+
   return (
     <div>
       <h1 className="font-display text-2xl font-bold text-ink">Diplomas</h1>
@@ -58,6 +92,10 @@ export default function AdminDiplomas() {
         </div>
 
         <div className="flex gap-2">
+          <button onClick={imprimir} disabled={!datos || cargando}
+            className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5 disabled:opacity-60">
+            🖨️ Imprimir
+          </button>
           <button onClick={() => descargar('excel')} disabled={descargando !== ''}
             className="rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light disabled:opacity-60">
             {descargando === 'excel' ? 'Generando…' : '⬇ Descargar Excel'}
@@ -77,7 +115,7 @@ export default function AdminDiplomas() {
         <table className="w-full text-left text-sm">
           <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
             <tr>
-              <th className="w-16 px-4 py-3">Número</th>
+              <th className="w-16 px-4 py-3">#</th>
               <th className="px-4 py-3">Nombre Completo</th>
               <th className="px-4 py-3">Capítulo</th>
               <th className="px-4 py-3">Cargo</th>

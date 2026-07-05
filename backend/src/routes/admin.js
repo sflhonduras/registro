@@ -115,12 +115,12 @@ router.delete('/participantes/:id', requireRole('admin'), async (req, res) => {
 // POST /api/admin/participantes/:id/inscripciones/:orden - inscribir manualmente (admin) a un evento
 router.post('/participantes/:id/inscripciones/:orden', requireRole('admin'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
-  const evRes = await query('SELECT id FROM eventos WHERE orden = $1', [orden]);
+  const evRes = await query('SELECT id, ciclo_actual FROM eventos WHERE orden = $1', [orden]);
   if (!evRes.rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
   try {
     await query(
-      'INSERT INTO inscripciones (participante_id, evento_id, origen) VALUES ($1,$2,$3)',
-      [req.params.id, evRes.rows[0].id, 'admin']
+      'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
+      [req.params.id, evRes.rows[0].id, 'admin', evRes.rows[0].ciclo_actual]
     );
     res.status(201).json({ mensaje: 'Inscripción agregada.' });
   } catch (e) {
@@ -148,7 +148,7 @@ router.get('/eventos', async (req, res) => {
 
 router.put('/eventos/:orden', requireRole('admin'), async (req, res) => {
   const b = req.body || {};
-  const campos = ['nombre', 'descripcion', 'fecha_evento', 'hora_evento', 'lugar', 'fecha_limite_registro', 'activo', 'cupo_maximo'];
+  const campos = ['nombre', 'descripcion', 'fecha_evento', 'fecha_evento_fin', 'hora_evento', 'lugar', 'fecha_limite_registro', 'activo', 'cupo_maximo'];
   const cols = campos.filter(c => b[c] !== undefined);
   if (cols.length === 0) return res.status(400).json({ error: 'Nada para actualizar.' });
   const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
@@ -162,11 +162,25 @@ router.put('/eventos/:orden', requireRole('admin'), async (req, res) => {
   res.json(rows[0]);
 });
 
+// POST /api/admin/eventos/:orden/nuevo-ciclo
+// Marca un nuevo ciclo/edición de este nivel. Las inscripciones anteriores quedan intactas
+// en el historial, pero dejan de contarse como "del evento actual" en estadísticas y diplomas.
+router.post('/eventos/:orden/nuevo-ciclo', requireRole('admin'), async (req, res) => {
+  const { rows } = await query(
+    'UPDATE eventos SET ciclo_actual = ciclo_actual + 1, actualizado_en = now() WHERE orden = $1 RETURNING *',
+    [req.params.orden]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
+  res.json({ mensaje: `Nuevo ciclo iniciado (ciclo #${rows[0].ciclo_actual}). Los contadores de este nivel arrancan de cero.`, evento: rows[0] });
+});
+
 /* ------------------------------- ESTADÍSTICAS ---------------------------- */
 
 router.get('/estadisticas', async (req, res) => {
   const porEvento = await query(`
-    SELECT e.orden, e.codigo, e.nombre, COUNT(i.id)::int AS total_inscritos
+    SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual,
+      COUNT(i.id)::int AS total_inscritos,
+      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual
     FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
     GROUP BY e.id ORDER BY e.orden`);
 
@@ -192,9 +206,11 @@ router.get('/estadisticas', async (req, res) => {
     GROUP BY e.id ORDER BY e.orden`);
 
   const totalParticipantes = await query('SELECT COUNT(*)::int AS total FROM participantes');
+  const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
 
   res.json({
     total_participantes: totalParticipantes.rows[0].total,
+    total_ciclo_actual: totalCicloActual,
     por_evento: porEvento.rows,
     por_zona: porZona.rows,
     por_departamento: porDepartamento.rows,
@@ -202,6 +218,40 @@ router.get('/estadisticas', async (req, res) => {
     inscripciones_por_dia: porDia.rows,
     embudo: embudo.rows
   });
+});
+
+// GET /api/admin/estadisticas/excel -> descarga un libro de Excel con varias hojas
+router.get('/estadisticas/excel', async (req, res) => {
+  const porEvento = await query(`
+    SELECT e.orden AS "Nivel", e.nombre AS "Nombre", e.ciclo_actual AS "Ciclo actual",
+      COUNT(i.id)::int AS "Total histórico",
+      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS "Total ciclo actual"
+    FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
+    GROUP BY e.id ORDER BY e.orden`);
+  const porZona = await query(`
+    SELECT COALESCE(zona,'Sin zona') AS "Zona", COUNT(*)::int AS "Total"
+    FROM participantes GROUP BY zona ORDER BY "Total" DESC`);
+  const porDepartamento = await query(`
+    SELECT COALESCE(departamento,'Sin depto.') AS "Departamento", COUNT(*)::int AS "Total"
+    FROM participantes GROUP BY departamento ORDER BY "Total" DESC`);
+  const porCapitulo = await query(`
+    SELECT COALESCE(capitulo,'Sin capítulo') AS "Capítulo", COUNT(*)::int AS "Total"
+    FROM participantes GROUP BY capitulo ORDER BY "Total" DESC`);
+  const porDia = await query(`
+    SELECT to_char(registrado_en, 'YYYY-MM-DD') AS "Fecha", COUNT(*)::int AS "Inscripciones"
+    FROM inscripciones GROUP BY "Fecha" ORDER BY "Fecha"`);
+
+  const libro = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(libro, xlsx.utils.json_to_sheet(porEvento.rows), 'Por Nivel');
+  xlsx.utils.book_append_sheet(libro, xlsx.utils.json_to_sheet(porZona.rows), 'Por Zona');
+  xlsx.utils.book_append_sheet(libro, xlsx.utils.json_to_sheet(porDepartamento.rows), 'Por Departamento');
+  xlsx.utils.book_append_sheet(libro, xlsx.utils.json_to_sheet(porCapitulo.rows), 'Por Capítulo');
+  xlsx.utils.book_append_sheet(libro, xlsx.utils.json_to_sheet(porDia.rows), 'Inscripciones por Día');
+  const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="estadisticas_sfl.xlsx"');
+  res.send(buffer);
 });
 
 /* ---------------------------- USUARIOS ADMIN ----------------------------- */
@@ -279,9 +329,9 @@ router.get('/diplomas/:orden', async (req, res) => {
     `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec, i.registrado_en, i.fecha_graduacion
      FROM inscripciones i
      JOIN participantes p ON p.id = i.participante_id
-     WHERE i.evento_id = $1
+     WHERE i.evento_id = $1 AND i.ciclo = $2
      ORDER BY p.nombre_completo ASC`,
-    [evento.id]
+    [evento.id, evento.ciclo_actual]
   );
   res.json({ evento, total: rows.length, participantes: rows });
 });
@@ -296,12 +346,12 @@ router.get('/diplomas/:orden/excel', async (req, res) => {
   const { rows } = await query(
     `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec
      FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
-     WHERE i.evento_id = $1 ORDER BY p.nombre_completo ASC`,
-    [evento.id]
+     WHERE i.evento_id = $1 AND i.ciclo = $2 ORDER BY p.nombre_completo ASC`,
+    [evento.id, evento.ciclo_actual]
   );
 
   const datos = rows.map((r, i) => ({
-    'Número': i + 1,
+    '#': i + 1,
     'Nombre Completo': r.nombre_completo,
     'Capítulo': r.capitulo || '',
     'Cargo': r.cargo_fihnec || ''
@@ -328,8 +378,8 @@ router.get('/diplomas/:orden/pdf', async (req, res) => {
   const { rows } = await query(
     `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec
      FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
-     WHERE i.evento_id = $1 ORDER BY p.nombre_completo ASC`,
-    [evento.id]
+     WHERE i.evento_id = $1 AND i.ciclo = $2 ORDER BY p.nombre_completo ASC`,
+    [evento.id, evento.ciclo_actual]
   );
 
   res.setHeader('Content-Type', 'application/pdf');
@@ -346,7 +396,7 @@ router.get('/diplomas/:orden/pdf', async (req, res) => {
   const colW = [50, 300, 190, 170];
   const y0 = doc.y;
   doc.font('Helvetica-Bold').fontSize(10);
-  doc.text('Número', colX[0], y0, { width: colW[0] });
+  doc.text('#', colX[0], y0, { width: colW[0] });
   doc.text('Nombre Completo', colX[1], y0, { width: colW[1] });
   doc.text('Capítulo', colX[2], y0, { width: colW[2] });
   doc.text('Cargo', colX[3], y0, { width: colW[3] });
@@ -366,6 +416,56 @@ router.get('/diplomas/:orden/pdf', async (req, res) => {
   });
 
   doc.end();
+});
+
+/* ---------------------- EXPORTAR LISTA PARA LLAMADAS ---------------------- */
+
+// GET /api/admin/exportar-contacto/:orden?ciclo_actual=true|false&desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+// Descarga .xlsx con Nombre Completo, Capítulo, Teléfono, Zona, Cargo de quienes se
+// registraron a ese nivel, ya sea en el ciclo actual o en un rango de fechas elegido.
+router.get('/exportar-contacto/:orden', async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
+  const evento = evRes.rows[0];
+  if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
+
+  const { ciclo_actual, desde, hasta } = req.query;
+  let filtroFecha = '';
+  const params = [evento.id];
+
+  if (ciclo_actual === 'true') {
+    params.push(evento.ciclo_actual);
+    filtroFecha = `AND i.ciclo = $${params.length}`;
+  } else if (desde && hasta) {
+    params.push(desde, `${hasta} 23:59:59`);
+    filtroFecha = `AND i.registrado_en BETWEEN $${params.length - 1} AND $${params.length}`;
+  }
+
+  const { rows } = await query(
+    `SELECT p.nombre_completo, p.capitulo, p.celular, p.zona, p.cargo_fihnec
+     FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
+     WHERE i.evento_id = $1 ${filtroFecha}
+     ORDER BY p.nombre_completo ASC`,
+    params
+  );
+
+  const datos = rows.map(r => ({
+    'Nombre Completo': r.nombre_completo,
+    'Capítulo': r.capitulo || '',
+    'Teléfono': r.celular || '',
+    'Zona': r.zona || '',
+    'Cargo': r.cargo_fihnec || ''
+  }));
+
+  const hoja = xlsx.utils.json_to_sheet(datos);
+  hoja['!cols'] = [{ wch: 32 }, { wch: 24 }, { wch: 14 }, { wch: 22 }, { wch: 30 }];
+  const libro = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(libro, hoja, `Nivel ${orden}`);
+  const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="contactos_nivel_${orden}.xlsx"`);
+  res.send(buffer);
 });
 
 /* ------------------------------ EXPORTAR CSV ------------------------------ */
