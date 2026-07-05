@@ -50,7 +50,7 @@ router.get('/participantes/:id', async (req, res) => {
   const { rows } = await query('SELECT * FROM participantes WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
   const insc = await query(
-    `SELECT e.orden, e.nombre, i.registrado_en, i.fecha_graduacion, i.origen FROM inscripciones i
+    `SELECT e.orden, e.nombre, i.registrado_en, i.fecha_graduacion, i.promocion_graduacion, i.origen FROM inscripciones i
      JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = $1 ORDER BY e.orden`,
     [req.params.id]
   );
@@ -174,11 +174,24 @@ router.post('/eventos/:orden/nuevo-ciclo', requireRole('admin'), async (req, res
   res.json({ mensaje: `Nuevo ciclo iniciado (ciclo #${rows[0].ciclo_actual}). Los contadores de este nivel arrancan de cero.`, evento: rows[0] });
 });
 
+// POST /api/admin/eventos/:orden/marcar-actual
+// Marca este nivel como "el evento actual" (el único que se muestra en el contador principal
+// del panel). Desmarca automáticamente cualquier otro nivel que lo tuviera antes.
+router.post('/eventos/:orden/marcar-actual', requireRole('admin'), async (req, res) => {
+  await query('UPDATE eventos SET es_actual = FALSE');
+  const { rows } = await query(
+    'UPDATE eventos SET es_actual = TRUE WHERE orden = $1 RETURNING *',
+    [req.params.orden]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
+  res.json({ mensaje: `"${rows[0].nombre}" ahora es el evento actual.`, evento: rows[0] });
+});
+
 /* ------------------------------- ESTADÍSTICAS ---------------------------- */
 
 router.get('/estadisticas', async (req, res) => {
   const porEvento = await query(`
-    SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual,
+    SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
       COUNT(i.id)::int AS total_inscritos,
       COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual
     FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
@@ -207,10 +220,12 @@ router.get('/estadisticas', async (req, res) => {
 
   const totalParticipantes = await query('SELECT COUNT(*)::int AS total FROM participantes');
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
+  const eventoActual = porEvento.rows.find(e => e.es_actual) || null;
 
   res.json({
     total_participantes: totalParticipantes.rows[0].total,
     total_ciclo_actual: totalCicloActual,
+    evento_actual: eventoActual,
     por_evento: porEvento.rows,
     por_zona: porZona.rows,
     por_departamento: porDepartamento.rows,

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS eventos (
   fecha_limite_registro TIMESTAMPTZ,                  -- fecha/hora tope para inscribirse
   activo          BOOLEAN NOT NULL DEFAULT TRUE,       -- bloqueo manual por el admin
   ciclo_actual    INTEGER NOT NULL DEFAULT 1,          -- ciclo/edición activa de este nivel
+  es_actual       BOOLEAN NOT NULL DEFAULT FALSE,       -- si es el nivel que se está promoviendo ahora
   cupo_maximo     INTEGER,
   creado_en       TIMESTAMPTZ NOT NULL DEFAULT now(),
   actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS inscripciones (
   evento_id        INTEGER NOT NULL REFERENCES eventos(id) ON DELETE CASCADE,
   registrado_en    TIMESTAMPTZ NOT NULL DEFAULT now(),
   fecha_graduacion DATE,
+  promocion_graduacion TEXT,
   ciclo            INTEGER NOT NULL DEFAULT 1,
   origen           TEXT NOT NULL DEFAULT 'web',        -- 'web' | 'importado'
   UNIQUE(participante_id, evento_id)

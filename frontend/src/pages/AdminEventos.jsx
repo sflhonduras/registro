@@ -73,10 +73,24 @@ export default function AdminEventos() {
     }
   };
 
+  const marcarComoActual = async (ev) => {
+    try {
+      const { data } = await api.post(`/admin/eventos/${ev.orden}/marcar-actual`);
+      setMensajes(m => ({ ...m, [ev.id]: data.mensaje }));
+      cargar();
+    } catch (err) {
+      setMensajes(m => ({ ...m, [ev.id]: mensajeError(err) }));
+    }
+  };
+
   return (
     <div>
       <h1 className="font-display text-2xl font-bold text-ink">Configuración de eventos</h1>
       <p className="text-sm text-ink/50">Define fecha, hora, lugar y controla la apertura o cierre del registro de cada nivel.</p>
+      <p className="mt-1 text-sm text-ink/50">
+        ⭐ El <strong>evento actual</strong> es el que se muestra en el contador del panel y en Diplomas/exportar para llamadas —
+        marca aquí cuál nivel es el que se está promoviendo en este momento.
+      </p>
 
       <div className="mt-6 space-y-5">
         {eventos.map(ev => (
@@ -90,6 +104,16 @@ export default function AdminEventos() {
                   value={ev.nombre} onChange={e => actualizarCampo(ev.id, 'nombre', e.target.value)}
                 />
                 <span className="rounded-full bg-ink/5 px-2.5 py-0.5 text-xs font-medium text-ink/50">Ciclo #{ev.ciclo_actual}</span>
+                {ev.es_actual ? (
+                  <span className="rounded-full bg-gold px-3 py-1 text-xs font-bold text-night">⭐ Evento actual</span>
+                ) : (
+                  !soloLectura && (
+                    <button onClick={() => marcarComoActual(ev)} type="button"
+                      className="rounded-full border border-ink/20 px-3 py-1 text-xs font-medium text-ink/50 hover:bg-ink/5">
+                      Marcar como evento actual
+                    </button>
+                  )
+                )}
               </div>
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" disabled={soloLectura} checked={ev.activo} onChange={e => actualizarCampo(ev.id, 'activo', e.target.checked)} />

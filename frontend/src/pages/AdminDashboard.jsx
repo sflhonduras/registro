@@ -58,7 +58,7 @@ export default function AdminDashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros desde siempre" onClick={() => nav('/admin/participantes')} />
         {datos.por_evento.map(e => (
-          <Tarjeta key={e.orden} titulo={`Nivel ${e.orden} · Ciclo #${e.ciclo_actual}`} valor={e.total_ciclo_actual}
+          <Tarjeta key={e.orden} titulo={`${e.es_actual ? '⭐ ' : ''}Nivel ${e.orden} · Ciclo #${e.ciclo_actual}`} valor={e.total_ciclo_actual}
             nota={`${e.total_inscritos} en total histórico`}
             onClick={() => nav(`/admin/participantes?evento=${e.orden}`)} />
         ))}

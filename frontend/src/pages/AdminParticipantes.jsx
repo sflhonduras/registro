@@ -131,12 +131,16 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
 }
 
 function PanelExportarContacto() {
-  const [nivel, setNivel] = useState(1);
+  const [eventoActual, setEventoActual] = useState(null);
   const [modo, setModo] = useState('ciclo'); // 'ciclo' | 'rango'
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [descargando, setDescargando] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/estadisticas').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
+  }, []);
 
   const descargar = async () => {
     setError('');
@@ -150,14 +154,14 @@ function PanelExportarContacto() {
       if (modo === 'ciclo') params.set('ciclo_actual', 'true');
       else { params.set('desde', desde); params.set('hasta', hasta); }
 
-      const resp = await fetch(`${api.defaults.baseURL}/admin/exportar-contacto/${nivel}?${params}`, {
+      const resp = await fetch(`${api.defaults.baseURL}/admin/exportar-contacto/${eventoActual.orden}?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
       });
       if (!resp.ok) throw new Error();
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `contactos_nivel_${nivel}.xlsx`; a.click();
+      a.href = url; a.download = `contactos_nivel_${eventoActual.orden}.xlsx`; a.click();
       URL.revokeObjectURL(url);
     } catch {
       setError('No se pudo generar el archivo.');
@@ -166,20 +170,28 @@ function PanelExportarContacto() {
     }
   };
 
+  if (!eventoActual) {
+    return (
+      <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
+        <p className="mt-1 text-sm text-ink/50">
+          Marca un nivel como "evento actual" desde <strong>Eventos</strong> para poder exportar su lista de contactos.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
       <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
       <p className="mt-1 text-sm text-ink/50">
-        Nombre completo, capítulo, teléfono, zona y cargo — de quienes se registraron a un nivel específico.
+        Nombre completo, capítulo, teléfono, zona y cargo — de quienes se registraron al evento actual.
       </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
-        <label className="text-sm">
-          <span className="mb-1 block text-ink/60">Nivel</span>
-          <select value={nivel} onChange={e => setNivel(Number(e.target.value))} className="rounded-lg border border-ink/15 px-3 py-2">
-            {[1, 2, 3, 4].map(n => <option key={n} value={n}>Nivel {n}</option>)}
-          </select>
-        </label>
+        <span className="rounded-full bg-gold px-4 py-2 text-sm font-bold text-night">
+          ⭐ {eventoActual.nombre}
+        </span>
 
         <label className="text-sm">
           <span className="mb-1 block text-ink/60">¿Qué registros?</span>

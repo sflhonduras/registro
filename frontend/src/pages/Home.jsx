@@ -22,6 +22,8 @@ export default function Home() {
     ?.filter(ev => ev.abierto && ev.fecha_limite_registro)
     .sort((a, b) => new Date(a.fecha_limite_registro) - new Date(b.fecha_limite_registro))[0];
 
+  const eventoActivo = eventos?.find(ev => ev.es_actual) || eventos?.[0];
+
   return (
     <div>
       {/* HERO */}
@@ -42,8 +44,8 @@ export default function Home() {
             <a href="#jornada" className="rounded-full bg-gold px-7 py-3 font-semibold text-night shadow-lg shadow-gold/20 transition hover:bg-gold-light">
               Ver la jornada SFL
             </a>
-            <Link to="/registro/1" className="rounded-full border border-parchment/30 px-7 py-3 font-semibold text-parchment transition hover:bg-parchment/10">
-              Inscribirme al Nivel I
+            <Link to={`/registro/${eventoActivo?.orden || 1}`} className="rounded-full border border-parchment/30 px-7 py-3 font-semibold text-parchment transition hover:bg-parchment/10">
+              Inscríbete aquí
             </Link>
           </div>
 

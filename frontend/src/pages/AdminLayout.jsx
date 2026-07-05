@@ -14,9 +14,13 @@ export default function AdminLayout() {
   const nav = useNavigate();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [totalRegistros, setTotalRegistros] = useState(null);
+  const [eventoActual, setEventoActual] = useState(null);
 
   useEffect(() => {
-    api.get('/admin/estadisticas').then(r => setTotalRegistros(r.data.total_ciclo_actual)).catch(() => {});
+    api.get('/admin/estadisticas').then(r => {
+      setTotalRegistros(r.data.evento_actual?.total_ciclo_actual ?? 0);
+      setEventoActual(r.data.evento_actual);
+    }).catch(() => {});
   }, []);
 
   const salir = () => {
@@ -52,6 +56,7 @@ export default function AdminLayout() {
         <div className="mt-5 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3">
           <p className="text-xs uppercase tracking-wide text-gold-light">Registros del evento actual</p>
           <p className="font-display text-2xl font-bold text-parchment">{totalRegistros ?? '…'}</p>
+          {eventoActual && <p className="mt-0.5 text-xs text-parchment/50">{eventoActual.nombre}</p>}
         </div>
 
         <nav className="mt-8 space-y-1">
