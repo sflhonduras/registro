@@ -10,6 +10,7 @@ import AdminLayout from './pages/AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminParticipantes from './pages/AdminParticipantes';
 import AdminDiplomas from './pages/AdminDiplomas';
+import AdminReportes from './pages/AdminReportes';
 import AdminEventos from './pages/AdminEventos';
 import AdminUsuarios from './pages/AdminUsuarios';
 
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="panel" element={<AdminDashboard />} />
             <Route path="participantes" element={<AdminParticipantes />} />
             <Route path="diplomas" element={<AdminDiplomas />} />
+            <Route path="reportes" element={<AdminReportes />} />
             <Route path="eventos" element={<AdminEventos />} />
             <Route path="usuarios" element={<ProtectedRoute rolRequerido="admin"><AdminUsuarios /></ProtectedRoute>} />
           </Route>

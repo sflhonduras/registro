@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/admin.js';
+import reportesRoutes from './routes/reportes.js';
 
 dotenv.config();
 const app = express();
@@ -25,6 +26,7 @@ app.get('/api/salud', (req, res) => res.json({ ok: true, servicio: 'SFL FIHNEC A
 app.use('/api', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/reportes', reportesRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

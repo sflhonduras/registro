@@ -1,0 +1,153 @@
+import { Router } from 'express';
+import PDFDocument from 'pdfkit';
+import xlsx from 'xlsx';
+import { query } from '../db.js';
+import { requireAuth } from '../auth.js';
+
+const router = Router();
+router.use(requireAuth);
+
+// Campos disponibles del participante (siempre se pueden pedir)
+const CAMPOS_PARTICIPANTE = {
+  nombre_completo: 'Nombre Completo',
+  dni: 'DNI',
+  celular: 'Celular',
+  capitulo: 'Capítulo',
+  zona: 'Zona',
+  departamento: 'Departamento',
+  municipio: 'Municipio',
+  cargo_fihnec: 'Cargo en FIHNEC',
+  estado_civil: 'Estado Civil',
+  hijos_cantidad: 'Hijos',
+  comparte_testimonio: 'Comparte Testimonio',
+  tiempo_comparte_testimonio: 'Tiempo de Testimonio',
+  ha_recibido_sael: 'Ha recibido SAEL',
+  cantidad_saeles: 'Cantidad de SAELES',
+  contacto_emergencia_nombre: 'Contacto de Emergencia',
+  contacto_emergencia_telefono: 'Teléfono de Emergencia',
+  observacion: 'Observación'
+};
+
+// Campos que solo existen cuando se filtra por un nivel específico (vienen de la inscripción)
+const CAMPOS_INSCRIPCION = {
+  registrado_en: 'Fecha de Registro',
+  fecha_graduacion: 'Fecha de Graduación',
+  promocion_graduacion: 'Promoción'
+};
+
+router.get('/campos-disponibles', (req, res) => {
+  res.json({ participante: CAMPOS_PARTICIPANTE, inscripcion: CAMPOS_INSCRIPCION });
+});
+
+// Construye la consulta SQL de forma segura a partir de los filtros recibidos.
+async function construirConsulta(q) {
+  const evento = q.evento && q.evento !== 'todos' ? parseInt(q.evento, 10) : null;
+  const camposPedidos = (q.campos || 'nombre_completo,dni,celular,capitulo,zona,cargo_fihnec')
+    .split(',').map(c => c.trim()).filter(Boolean);
+
+  const columnas = [];
+  const selects = [];
+
+  for (const campo of camposPedidos) {
+    if (CAMPOS_PARTICIPANTE[campo]) {
+      columnas.push({ clave: campo, titulo: CAMPOS_PARTICIPANTE[campo] });
+      selects.push(`p.${campo} AS "${campo}"`);
+    } else if (evento && CAMPOS_INSCRIPCION[campo]) {
+      columnas.push({ clave: campo, titulo: CAMPOS_INSCRIPCION[campo] });
+      selects.push(`i.${campo} AS "${campo}"`);
+    }
+  }
+  if (selects.length === 0) {
+    columnas.push({ clave: 'nombre_completo', titulo: 'Nombre Completo' });
+    selects.push('p.nombre_completo AS "nombre_completo"');
+  }
+
+  const params = [];
+  const condiciones = [];
+  let desdeJoin = 'FROM participantes p';
+
+  if (evento) {
+    params.push(evento);
+    desdeJoin += ` JOIN inscripciones i ON i.participante_id = p.id
+                   JOIN eventos e ON e.id = i.evento_id AND e.orden = $${params.length}`;
+
+    if (q.alcance === 'ciclo_actual') {
+      condiciones.push('i.ciclo = e.ciclo_actual');
+    } else if (q.alcance === 'rango' && q.desde && q.hasta) {
+      params.push(q.desde, `${q.hasta} 23:59:59`);
+      condiciones.push(`i.registrado_en BETWEEN $${params.length - 1} AND $${params.length}`);
+    }
+    // alcance 'historico' (o sin especificar) = sin filtro extra de fecha
+  }
+
+  if (q.zona) { params.push(q.zona); condiciones.push(`p.zona = $${params.length}`); }
+  if (q.departamento) { params.push(q.departamento); condiciones.push(`p.departamento = $${params.length}`); }
+  if (q.capitulo) { params.push(`%${q.capitulo}%`); condiciones.push(`p.capitulo ILIKE $${params.length}`); }
+
+  const where = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
+  const sql = `SELECT ${selects.join(', ')} ${desdeJoin} ${where} ORDER BY p.nombre_completo ASC`;
+
+  const { rows } = await query(sql, params);
+  return { columnas, filas: rows };
+}
+
+router.get('/', async (req, res) => {
+  const { columnas, filas } = await construirConsulta(req.query);
+  res.json({ columnas, filas, total: filas.length });
+});
+
+router.get('/excel', async (req, res) => {
+  const { columnas, filas } = await construirConsulta(req.query);
+  const datos = filas.map((f, i) => {
+    const fila = { '#': i + 1 };
+    for (const c of columnas) fila[c.titulo] = f[c.clave] ?? '';
+    return fila;
+  });
+  const hoja = xlsx.utils.json_to_sheet(datos);
+  const libro = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(libro, hoja, 'Reporte');
+  const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="reporte_sfl.xlsx"');
+  res.send(buffer);
+});
+
+router.get('/pdf', async (req, res) => {
+  const { columnas, filas } = await construirConsulta(req.query);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="reporte_sfl.pdf"');
+
+  const doc = new PDFDocument({ size: 'letter', margin: 30, layout: columnas.length > 4 ? 'landscape' : 'portrait' });
+  doc.pipe(res);
+
+  doc.fontSize(15).font('Helvetica-Bold').text('FIHNEC · Seminario para la Formación de Líderes', { align: 'center' });
+  doc.fontSize(11).font('Helvetica').text('Reporte de participantes', { align: 'center' });
+  doc.moveDown(1);
+
+  const anchoDisponible = doc.page.width - 60;
+  const anchoCol = anchoDisponible / (columnas.length + 1);
+
+  const dibujarFila = (valores, negrita) => {
+    doc.font(negrita ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+    let x = 30;
+    const y = doc.y;
+    valores.forEach(v => {
+      doc.text(String(v ?? ''), x, y, { width: anchoCol - 5 });
+      x += anchoCol;
+    });
+    doc.moveDown(0.6);
+  };
+
+  dibujarFila(['#', ...columnas.map(c => c.titulo)], true);
+  doc.moveTo(30, doc.y).lineTo(30 + anchoDisponible, doc.y).strokeColor('#cccccc').stroke();
+  doc.moveDown(0.3);
+
+  filas.forEach((f, i) => {
+    if (doc.y > doc.page.height - 60) doc.addPage({ size: 'letter', margin: 30, layout: columnas.length > 4 ? 'landscape' : 'portrait' });
+    dibujarFila([i + 1, ...columnas.map(c => f[c.clave])], false);
+  });
+
+  doc.end();
+});
+
+export default router;
