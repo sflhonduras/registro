@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS usuarios_admin (
   nombre         TEXT NOT NULL,
   email          TEXT NOT NULL UNIQUE,
   password_hash  TEXT NOT NULL,
-  rol            TEXT NOT NULL CHECK (rol IN ('admin','consulta')),
+  rol            TEXT NOT NULL CHECK (rol IN ('admin','consulta','cocina')),
   activo         BOOLEAN NOT NULL DEFAULT TRUE,
   creado_en      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -77,6 +77,29 @@ CREATE TABLE IF NOT EXISTS auditoria (
   detalle      JSONB,
   creado_en    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS servidores (
+  id                  SERIAL PRIMARY KEY,
+  nombre_completo     TEXT NOT NULL,
+  capitulo            TEXT,
+  celular             TEXT,
+  estado_civil        TEXT,
+  hijos_cantidad      INTEGER,
+  fecha_nacimiento    DATE,
+  email               TEXT,
+  participara_evento  BOOLEAN NOT NULL DEFAULT FALSE,
+  creado_en           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actualizado_en      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS configuracion (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL,
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO configuracion (clave, valor) VALUES ('promocion_actual', '5')
+ON CONFLICT (clave) DO NOTHING;
 
 INSERT INTO eventos (orden, codigo, nombre, descripcion)
 VALUES

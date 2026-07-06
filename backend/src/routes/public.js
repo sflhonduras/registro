@@ -13,6 +13,63 @@ function estadoEvento(ev) {
   return { ...ev, abierto, venciDeCierre };
 }
 
+// Registra (o vuelve a activar) la inscripción de un participante a un evento, respetando
+// el "ciclo" actual de ese evento. Si ya tiene una inscripción de un ciclo anterior, la
+// reactiva para el ciclo actual (en vez de bloquearlo para siempre). Si ya está inscrito
+// en el ciclo actual, avisa que ya está registrado.
+async function inscribirEnCicloActual(participanteId, evento, origen = 'web') {
+  const existente = await query(
+    'SELECT id, ciclo FROM inscripciones WHERE participante_id = $1 AND evento_id = $2',
+    [participanteId, evento.id]
+  );
+  if (existente.rows[0]) {
+    if (existente.rows[0].ciclo === evento.ciclo_actual) {
+      return { yaRegistrado: true };
+    }
+    await query(
+      'UPDATE inscripciones SET ciclo = $1, registrado_en = now(), origen = $2 WHERE id = $3',
+      [evento.ciclo_actual, origen, existente.rows[0].id]
+    );
+    return { yaRegistrado: false, reactivado: true };
+  }
+  await query(
+    'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
+    [participanteId, evento.id, origen, evento.ciclo_actual]
+  );
+  return { yaRegistrado: false, reactivado: false };
+}
+
+const CAMPOS_REQUERIDOS_EVENTO1 = [
+  'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
+  'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio',
+  'ha_recibido_sael', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono'
+];
+
+function validarDatosEvento1(b) {
+  for (const campo of CAMPOS_REQUERIDOS_EVENTO1) {
+    if (b[campo] === undefined || b[campo] === null || String(b[campo]).trim() === '') {
+      return `El campo "${campo}" es obligatorio.`;
+    }
+  }
+  if (b.comparte_testimonio === 'Si' && !String(b.tiempo_comparte_testimonio || '').trim()) {
+    return 'Indica hace cuánto tiempo comparte testimonio.';
+  }
+  if (b.ha_recibido_sael === 'Si' && !String(b.cantidad_saeles || '').trim()) {
+    return 'Indica cuántos SAELES ha recibido.';
+  }
+  const celular = soloDigitos(b.celular);
+  if (!celular || celular.length !== 8) return 'El número de celular debe tener exactamente 8 dígitos.';
+  const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
+  if (!telefonoEmergencia || telefonoEmergencia.length !== 8) return 'El teléfono del contacto de emergencia debe tener exactamente 8 dígitos.';
+  const hijosCantidad = parseInt(b.hijos_cantidad, 10);
+  if (Number.isNaN(hijosCantidad) || hijosCantidad < 0) return 'La cantidad de hijos debe ser un número válido.';
+  if (b.ha_recibido_sael === 'Si') {
+    const cantidadSaeles = parseInt(b.cantidad_saeles, 10);
+    if (Number.isNaN(cantidadSaeles) || cantidadSaeles < 0) return 'La cantidad de SAELES debe ser un número válido.';
+  }
+  return null;
+}
+
 // GET /api/eventos -> lista pública de los 4 eventos con su estado
 router.get('/eventos', async (req, res) => {
   const { rows } = await query('SELECT * FROM eventos ORDER BY orden ASC');
@@ -27,50 +84,32 @@ router.get('/eventos/:orden/estado', async (req, res) => {
   res.json(estadoEvento(rows[0]));
 });
 
-// POST /api/registro/evento1  -> inscripción completa (crea participante + inscripción)
+// GET /api/evento1/verificar/:dni -> revisa si ya existe un participante con ese DNI,
+// para preguntarle si quiere actualizar sus datos antes de (re)inscribirlo al Nivel I.
+router.get('/evento1/verificar/:dni', async (req, res) => {
+  const dni = soloDigitos(req.params.dni) || String(req.params.dni).trim();
+  const partRes = await query('SELECT * FROM participantes WHERE dni = $1', [dni]);
+  const participante = partRes.rows[0];
+  if (!participante) return res.json({ existe: false });
+
+  const evRes = await query('SELECT * FROM eventos WHERE orden = 1');
+  const evento = evRes.rows[0];
+  const inscRes = await query(
+    'SELECT ciclo FROM inscripciones WHERE participante_id = $1 AND evento_id = $2',
+    [participante.id, evento.id]
+  );
+  const yaRegistradoCicloActual = inscRes.rows[0]?.ciclo === evento.ciclo_actual;
+
+  delete participante.pin; // dato interno, no se expone
+  res.json({ existe: true, ya_registrado_ciclo_actual: yaRegistradoCicloActual, participante });
+});
+
+// POST /api/registro/evento1  -> inscribe (o re-inscribe) al Nivel I.
+// body.actualizar_datos: true (actualiza sus datos), false (los deja igual), u omitido (nuevo participante).
 router.post('/registro/evento1', async (req, res) => {
   const b = req.body || {};
-  const requeridosBase = [
-    'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
-    'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio',
-    'ha_recibido_sael', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono'
-  ];
-  for (const campo of requeridosBase) {
-    if (b[campo] === undefined || b[campo] === null || String(b[campo]).trim() === '') {
-      return res.status(400).json({ error: `El campo "${campo}" es obligatorio.` });
-    }
-  }
-
-  // Campos condicionales: solo obligatorios si la respuesta anterior fue "Si"
-  if (b.comparte_testimonio === 'Si' && !String(b.tiempo_comparte_testimonio || '').trim()) {
-    return res.status(400).json({ error: 'Indica hace cuánto tiempo comparte testimonio.' });
-  }
-  if (b.ha_recibido_sael === 'Si' && !String(b.cantidad_saeles || '').trim()) {
-    return res.status(400).json({ error: 'Indica cuántos SAELES ha recibido.' });
-  }
-
-  // Validación numérica: celular y teléfono de emergencia deben ser 8 dígitos (Honduras)
-  const celular = soloDigitos(b.celular);
-  const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
-  if (!celular || celular.length !== 8) {
-    return res.status(400).json({ error: 'El número de celular debe tener exactamente 8 dígitos.' });
-  }
-  if (!telefonoEmergencia || telefonoEmergencia.length !== 8) {
-    return res.status(400).json({ error: 'El teléfono del contacto de emergencia debe tener exactamente 8 dígitos.' });
-  }
-  const hijosCantidad = parseInt(b.hijos_cantidad, 10);
-  if (Number.isNaN(hijosCantidad) || hijosCantidad < 0) {
-    return res.status(400).json({ error: 'La cantidad de hijos debe ser un número válido.' });
-  }
-  let cantidadSaeles = null;
-  if (b.ha_recibido_sael === 'Si') {
-    cantidadSaeles = parseInt(b.cantidad_saeles, 10);
-    if (Number.isNaN(cantidadSaeles) || cantidadSaeles < 0) {
-      return res.status(400).json({ error: 'La cantidad de SAELES debe ser un número válido.' });
-    }
-  }
-
-  const dni = soloDigitos(b.dni) || String(b.dni).trim();
+  const dni = soloDigitos(b.dni) || String(b.dni || '').trim();
+  if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI).' });
 
   const evRes = await query('SELECT * FROM eventos WHERE orden = 1');
   const evento = evRes.rows[0];
@@ -79,37 +118,76 @@ router.post('/registro/evento1', async (req, res) => {
     return res.status(403).json({ error: 'El registro para el Evento 1 está cerrado en este momento.' });
   }
 
-  const existente = await query('SELECT id FROM participantes WHERE dni = $1', [dni]);
-  if (existente.rows[0]) {
-    return res.status(409).json({
-      error: 'Ya existe un registro con este número de identidad. Cada participante se inscribe una única vez en el Evento 1.'
-    });
+  const existenteRes = await query('SELECT id FROM participantes WHERE dni = $1', [dni]);
+  const existente = existenteRes.rows[0];
+
+  let participanteId;
+
+  if (!existente) {
+    // Participante nuevo: se validan todos los campos y se crea su registro.
+    const errorValidacion = validarDatosEvento1(b);
+    if (errorValidacion) return res.status(400).json({ error: errorValidacion });
+
+    const celular = soloDigitos(b.celular);
+    const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
+    const insertParticipante = await query(
+      `INSERT INTO participantes
+        (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec,
+         estado_civil, hijos_cantidad, comparte_testimonio, tiempo_comparte_testimonio,
+         ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       RETURNING id`,
+      [
+        normalizarNombre(b.nombre_completo), dni, celular, normalizarNombre(b.capitulo), b.zona,
+        b.departamento, b.municipio, b.cargo_fihnec, b.estado_civil,
+        parseInt(b.hijos_cantidad, 10), b.comparte_testimonio,
+        b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
+        b.ha_recibido_sael, b.ha_recibido_sael === 'Si' ? parseInt(b.cantidad_saeles, 10) : null,
+        normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null
+      ]
+    );
+    participanteId = insertParticipante.rows[0].id;
+  } else {
+    participanteId = existente.id;
+
+    if (b.actualizar_datos === true) {
+      const errorValidacion = validarDatosEvento1(b);
+      if (errorValidacion) return res.status(400).json({ error: errorValidacion });
+
+      const celular = soloDigitos(b.celular);
+      const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
+      await query(
+        `UPDATE participantes SET
+           nombre_completo=$1, celular=$2, capitulo=$3, zona=$4, departamento=$5, municipio=$6,
+           cargo_fihnec=$7, estado_civil=$8, hijos_cantidad=$9, comparte_testimonio=$10,
+           tiempo_comparte_testimonio=$11, ha_recibido_sael=$12, cantidad_saeles=$13,
+           contacto_emergencia_nombre=$14, contacto_emergencia_telefono=$15, observacion=$16,
+           actualizado_en = now()
+         WHERE id = $17`,
+        [
+          normalizarNombre(b.nombre_completo), celular, normalizarNombre(b.capitulo), b.zona,
+          b.departamento, b.municipio, b.cargo_fihnec, b.estado_civil,
+          parseInt(b.hijos_cantidad, 10), b.comparte_testimonio,
+          b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
+          b.ha_recibido_sael, b.ha_recibido_sael === 'Si' ? parseInt(b.cantidad_saeles, 10) : null,
+          normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia,
+          b.observacion ? b.observacion.trim() : null, participanteId
+        ]
+      );
+    }
   }
 
-  const insertParticipante = await query(
-    `INSERT INTO participantes
-      (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec,
-       estado_civil, hijos_cantidad, comparte_testimonio, tiempo_comparte_testimonio,
-       ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-     RETURNING id`,
-    [
-      normalizarNombre(b.nombre_completo), dni, celular, normalizarNombre(b.capitulo), b.zona,
-      b.departamento, b.municipio, b.cargo_fihnec, b.estado_civil,
-      hijosCantidad, b.comparte_testimonio,
-      b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
-      b.ha_recibido_sael, cantidadSaeles,
-      normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null
-    ]
-  );
-  const participanteId = insertParticipante.rows[0].id;
+  const resultadoInscripcion = await inscribirEnCicloActual(participanteId, evento);
+  if (resultadoInscripcion.yaRegistrado) {
+    return res.status(409).json({ error: 'Ya estás registrado en el Nivel I para este evento.' });
+  }
 
-  await query(
-    'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
-    [participanteId, evento.id, 'web', evento.ciclo_actual]
-  );
-
-  res.status(201).json({ mensaje: 'Registro completado. ¡Bienvenido al SFL Nivel I!', participante_id: participanteId });
+  res.status(201).json({
+    mensaje: existente
+      ? (b.actualizar_datos === true ? 'Tus datos fueron actualizados y tu registro quedó confirmado.' : 'Tu registro quedó confirmado.')
+      : 'Registro completado. ¡Bienvenido al SFL Nivel I!',
+    participante_id: participanteId
+  });
 });
 
 // POST /api/registro/:orden  (orden = 2, 3, 4) -> solo requiere DNI, valida elegibilidad secuencial
@@ -152,22 +230,14 @@ router.post('/registro/:orden', async (req, res) => {
     });
   }
 
-  const inscripcionActual = await query(
-    'SELECT id FROM inscripciones WHERE participante_id = $1 AND evento_id = $2',
-    [participante.id, evActual.id]
-  );
-  if (inscripcionActual.rows[0]) {
+  const resultadoInscripcion = await inscribirEnCicloActual(participante.id, evActual);
+  if (resultadoInscripcion.yaRegistrado) {
     return res.status(409).json({
       error: `Ya estás registrado en "${evActual.nombre}".`,
       habilitado: true,
       ya_registrado: true
     });
   }
-
-  await query(
-    'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
-    [participante.id, evActual.id, 'web', evActual.ciclo_actual]
-  );
 
   res.status(201).json({
     mensaje: `¡Listo, ${participante.nombre_completo}! Quedaste registrado en "${evActual.nombre}".`,
@@ -178,7 +248,7 @@ router.post('/registro/:orden', async (req, res) => {
 // GET /api/consulta/:orden/:dni -> permite validar elegibilidad sin registrar (para UI de "verificar")
 router.get('/consulta/:orden/:dni', async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
-  const dni = String(req.params.dni).trim();
+  const dni = soloDigitos(req.params.dni) || String(req.params.dni).trim();
   const partRes = await query('SELECT id, nombre_completo FROM participantes WHERE dni = $1', [dni]);
   const participante = partRes.rows[0];
   if (!participante) return res.json({ existe: false, habilitado: false });

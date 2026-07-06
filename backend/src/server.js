@@ -6,6 +6,8 @@ import publicRoutes from './routes/public.js';
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/admin.js';
 import reportesRoutes from './routes/reportes.js';
+import servidoresRoutes from './routes/servidores.js';
+import cocinaRoutes from './routes/cocina.js';
 
 dotenv.config();
 const app = express();
@@ -27,6 +29,8 @@ app.use('/api', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/reportes', reportesRoutes);
+app.use('/api/admin/servidores', servidoresRoutes);
+app.use('/api/cocina', cocinaRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

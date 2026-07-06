@@ -9,6 +9,7 @@
     "migrate:v2": "node scripts/migrate_v2.js",
     "import-excel": "node scripts/import_excel.js",
     "import-graduados": "node scripts/import_graduados.js",
+    "import-servidores": "node scripts/import_servidores.js",
     "create-admin": "node scripts/create_admin.js"
   },
   "dependencies": {

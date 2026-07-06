@@ -6,6 +6,10 @@ import { requireAuth } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);
+router.use((req, res, next) => {
+  if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
+  next();
+});
 
 // Campos disponibles del participante (siempre se pueden pedir)
 const CAMPOS_PARTICIPANTE = {

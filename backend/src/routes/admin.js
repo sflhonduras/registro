@@ -8,6 +8,10 @@ import { normalizarNombre } from '../texto.js';
 
 const router = Router();
 router.use(requireAuth); // todas las rutas de admin requieren sesión
+router.use((req, res, next) => {
+  if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
+  next();
+});
 
 /* ---------------------------- PARTICIPANTES ---------------------------- */
 
@@ -187,6 +191,18 @@ router.post('/eventos/:orden/marcar-actual', requireRole('admin'), async (req, r
   res.json({ mensaje: `"${rows[0].nombre}" ahora es el evento actual.`, evento: rows[0] });
 });
 
+// POST /api/admin/promocion/avanzar -> avanza la promoción actual en +1 (ej. de V a VI)
+router.post('/promocion/avanzar', requireRole('admin'), async (req, res) => {
+  const actual = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
+  const nuevoValor = (parseInt(actual.rows[0]?.valor || '0', 10) + 1);
+  await query(
+    `INSERT INTO configuracion (clave, valor, actualizado_en) VALUES ('promocion_actual', $1, now())
+     ON CONFLICT (clave) DO UPDATE SET valor = $1, actualizado_en = now()`,
+    [String(nuevoValor)]
+  );
+  res.json({ mensaje: `Ahora se está cursando la Promoción ${nuevoValor}.`, promocion_actual: nuevoValor });
+});
+
 /* ------------------------------- ESTADÍSTICAS ---------------------------- */
 
 router.get('/estadisticas', async (req, res) => {
@@ -221,11 +237,14 @@ router.get('/estadisticas', async (req, res) => {
   const totalParticipantes = await query('SELECT COUNT(*)::int AS total FROM participantes');
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
   const eventoActual = porEvento.rows.find(e => e.es_actual) || null;
+  const promocionRes = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
+  const promocionActual = promocionRes.rows[0] ? parseInt(promocionRes.rows[0].valor, 10) : null;
 
   res.json({
     total_participantes: totalParticipantes.rows[0].total,
     total_ciclo_actual: totalCicloActual,
     evento_actual: eventoActual,
+    promocion_actual: promocionActual,
     por_evento: porEvento.rows,
     por_zona: porZona.rows,
     por_departamento: porDepartamento.rows,
@@ -279,7 +298,7 @@ router.get('/usuarios', requireRole('admin'), async (req, res) => {
 router.post('/usuarios', requireRole('admin'), async (req, res) => {
   const { nombre, email, password, rol } = req.body || {};
   if (!nombre || !email || !password || !rol) return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
-  if (!['admin', 'consulta'].includes(rol)) return res.status(400).json({ error: 'Rol inválido.' });
+  if (!['admin', 'consulta', 'cocina'].includes(rol)) return res.status(400).json({ error: 'Rol inválido.' });
   const hash = await bcrypt.hash(password, 10);
   try {
     const { rows } = await query(
@@ -321,14 +340,14 @@ router.delete('/usuarios/:id', requireRole('admin'), async (req, res) => {
 // PUT /api/admin/participantes/:id/inscripciones/:orden/graduacion - fijar/quitar fecha de graduación
 router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('admin'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
-  const { fecha_graduacion } = req.body || {};
+  const { fecha_graduacion, promocion_graduacion } = req.body || {};
   const { rowCount } = await query(
-    `UPDATE inscripciones SET fecha_graduacion = $1
-     WHERE participante_id = $2 AND evento_id = (SELECT id FROM eventos WHERE orden = $3)`,
-    [fecha_graduacion || null, req.params.id, orden]
+    `UPDATE inscripciones SET fecha_graduacion = $1, promocion_graduacion = $2
+     WHERE participante_id = $3 AND evento_id = (SELECT id FROM eventos WHERE orden = $4)`,
+    [fecha_graduacion || null, promocion_graduacion || null, req.params.id, orden]
   );
   if (!rowCount) return res.status(404).json({ error: 'Inscripción no encontrada.' });
-  res.json({ mensaje: fecha_graduacion ? 'Fecha de graduación guardada.' : 'Fecha de graduación eliminada.' });
+  res.json({ mensaje: 'Datos de graduación guardados.' });
 });
 
 /* -------------------------------- DIPLOMAS -------------------------------- */
