@@ -71,6 +71,7 @@ export default function AdminServidores() {
   const [servidores, setServidores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [seleccionado, setSeleccionado] = useState(null);
+  const [descargando, setDescargando] = useState('');
 
   const cargar = () => api.get('/admin/servidores').then(r => setServidores(r.data)).finally(() => setCargando(false));
   useEffect(() => { cargar(); }, []);
@@ -87,6 +88,52 @@ export default function AdminServidores() {
     cargar();
   };
 
+  const descargar = async (tipo) => {
+    setDescargando(tipo);
+    try {
+      const resp = await fetch(`${api.defaults.baseURL}/admin/servidores/${tipo}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
+      });
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `servidores_sfl.${tipo === 'excel' ? 'xlsx' : 'pdf'}`; a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDescargando('');
+    }
+  };
+
+  const COLUMNAS_IMPRESION = [
+    ['nombre_completo', 'Nombre Completo'], ['capitulo', 'Capítulo'], ['celular', 'Celular'],
+    ['estado_civil', 'Estado Civil'], ['hijos_cantidad', 'Hijos'], ['fecha_nacimiento', 'Fecha de Nacimiento'], ['email', 'E-mail']
+  ];
+
+  const imprimir = () => {
+    const filas = servidores.map((s, i) => `
+      <tr><td>${i + 1}</td>${COLUMNAS_IMPRESION.map(([clave]) => `<td>${s[clave] ?? ''}</td>`).join('')}</tr>`).join('');
+    const html = `
+      <html><head><title>Servidores SFL</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 24px; }
+        h1 { font-size: 18px; margin-bottom: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; font-size: 11px; text-align: left; }
+        th { background: #f0ede4; }
+      </style></head>
+      <body>
+        <h1>FIHNEC · Servidores del SFL</h1>
+        <table>
+          <thead><tr><th>#</th>${COLUMNAS_IMPRESION.map(([, titulo]) => `<th>${titulo}</th>`).join('')}</tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+        <script>window.onload = () => window.print();</script>
+      </body></html>`;
+    const ventana = window.open('', '_blank');
+    ventana.document.write(html);
+    ventana.document.close();
+  };
+
   const totalParticipando = servidores.filter(s => s.participara_evento).length;
 
   return (
@@ -96,12 +143,25 @@ export default function AdminServidores() {
           <h1 className="font-display text-2xl font-bold text-ink">Servidores SFL</h1>
           <p className="text-sm text-ink/50">{servidores.length} servidores registrados · {totalParticipando} participarán en el evento actual</p>
         </div>
-        {!soloLectura && (
-          <button onClick={() => setSeleccionado({ nombre_completo: '', participara_evento: false })}
-            className="rounded-full bg-gold px-5 py-2 text-sm font-semibold text-night hover:bg-gold-light">
-            + Agregar servidor
+        <div className="flex flex-wrap gap-2">
+          <button onClick={imprimir} className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5">
+            🖨️ Imprimir
           </button>
-        )}
+          <button onClick={() => descargar('excel')} disabled={descargando !== ''}
+            className="rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light disabled:opacity-60">
+            {descargando === 'excel' ? 'Generando…' : '⬇ Excel'}
+          </button>
+          <button onClick={() => descargar('pdf')} disabled={descargando !== ''}
+            className="rounded-full bg-ember px-5 py-2 text-sm font-semibold text-white hover:bg-ember-light disabled:opacity-60">
+            {descargando === 'pdf' ? 'Generando…' : '⬇ PDF'}
+          </button>
+          {!soloLectura && (
+            <button onClick={() => setSeleccionado({ nombre_completo: '', participara_evento: false })}
+              className="rounded-full bg-gold px-5 py-2 text-sm font-semibold text-night hover:bg-gold-light">
+              + Agregar servidor
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-5 overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">

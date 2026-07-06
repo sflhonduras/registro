@@ -1,19 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  LineChart, Line, PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
 import api from '../api';
 import { numeroARomano } from '../romano';
+import HondurasMapa from '../components/HondurasMapa';
 
 const COLORES = ['#C9932F', '#B23A2E', '#2F5D3A', '#8A6A3C', '#6B7280'];
-const RANGOS = [
-  { valor: 7, etiqueta: 'Últimos 7 días' },
-  { valor: 30, etiqueta: 'Últimos 30 días' },
-  { valor: 90, etiqueta: 'Últimos 90 días' },
-  { valor: 0, etiqueta: 'Todo el historial' },
-];
 
 function Tarjeta({ titulo, valor, nota, onClick }) {
   return (
@@ -31,20 +26,11 @@ function Tarjeta({ titulo, valor, nota, onClick }) {
 export default function AdminDashboard() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
-  const [rangoDias, setRangoDias] = useState(30);
   const nav = useNavigate();
 
   useEffect(() => {
     api.get('/admin/estadisticas').then(r => setDatos(r.data)).catch(() => setError('No se pudieron cargar las estadísticas.'));
   }, []);
-
-  const diasFiltrados = useMemo(() => {
-    if (!datos) return [];
-    if (!rangoDias) return datos.inscripciones_por_dia;
-    const corte = new Date();
-    corte.setDate(corte.getDate() - rangoDias);
-    return datos.inscripciones_por_dia.filter(d => new Date(d.dia) >= corte);
-  }, [datos, rangoDias]);
 
   if (error) return <p className="text-ember">{error}</p>;
   if (!datos) return <p className="text-ink/50">Cargando estadísticas…</p>;
@@ -129,31 +115,9 @@ export default function AdminDashboard() {
         </div>
 
         <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="font-semibold text-ink">Inscripciones por día</p>
-            <div className="flex gap-1 rounded-full bg-parchment-2 p-1">
-              {RANGOS.map(r => (
-                <button
-                  key={r.valor}
-                  onClick={() => setRangoDias(r.valor)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                    rangoDias === r.valor ? 'bg-ink text-parchment' : 'text-ink/50 hover:bg-ink/5'
-                  }`}
-                >
-                  {r.etiqueta}
-                </button>
-              ))}
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={diasFiltrados}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#00000010" />
-              <XAxis dataKey="dia" fontSize={11} />
-              <YAxis fontSize={12} allowDecimals={false} />
-              <Tooltip />
-              <Line type="monotone" dataKey="total" stroke="#B23A2E" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <p className="mb-1 font-semibold text-ink">🗺️ Mapa de Honduras · Participantes por departamento</p>
+          <p className="mb-4 text-xs text-ink/40">El tamaño y color de cada círculo representa cuántos participantes vienen de ese departamento. Pasa el mouse para ver los municipios.</p>
+          <HondurasMapa datos={datos.mapa_departamentos || []} />
         </div>
 
         <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">

@@ -245,6 +245,9 @@ export default function AdminParticipantes() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const soloLectura = usuario?.rol !== 'admin';
 
+  const [pestana, setPestana] = useState('actual'); // 'actual' | 'todos'
+  const [eventoActual, setEventoActual] = useState(null);
+
   const [buscar, setBuscar] = useState('');
   const [filtroEvento, setFiltroEvento] = useState('');
   const [pagina, setPagina] = useState(1);
@@ -252,14 +255,27 @@ export default function AdminParticipantes() {
   const [seleccionado, setSeleccionado] = useState(null);
   const [cargando, setCargando] = useState(false);
 
+  useEffect(() => {
+    api.get('/admin/estadisticas').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
+  }, []);
+
   const cargar = useCallback(() => {
     setCargando(true);
-    api.get('/admin/participantes', { params: { buscar, pagina, evento: filtroEvento || undefined } })
-      .then(r => setResultado(r.data))
-      .finally(() => setCargando(false));
-  }, [buscar, pagina, filtroEvento]);
+    if (pestana === 'actual') {
+      if (!eventoActual) { setCargando(false); return; }
+      api.get('/admin/participantes', { params: { buscar, pagina, evento: eventoActual.orden, solo_ciclo_actual: true } })
+        .then(r => setResultado(r.data))
+        .finally(() => setCargando(false));
+    } else {
+      api.get('/admin/participantes', { params: { buscar, pagina, evento: filtroEvento || undefined } })
+        .then(r => setResultado(r.data))
+        .finally(() => setCargando(false));
+    }
+  }, [buscar, pagina, filtroEvento, pestana, eventoActual]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  const cambiarPestana = (p) => { setPestana(p); setPagina(1); setBuscar(''); };
 
   const eliminar = async (p) => {
     if (!confirm(`¿Eliminar a ${p.nombre_completo}? Esta acción no se puede deshacer.`)) return;
@@ -276,28 +292,50 @@ export default function AdminParticipantes() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-ink">Participantes</h1>
-          <p className="text-sm text-ink/50">{resultado.total} registros en la base de datos</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            placeholder="Buscar por nombre, DNI o capítulo…"
-            value={buscar}
-            onChange={e => { setBuscar(e.target.value); setPagina(1); }}
-            className="rounded-lg border border-ink/15 px-3.5 py-2 text-sm"
-          />
-          <select value={filtroEvento} onChange={e => { setFiltroEvento(e.target.value); setPagina(1); }} className="rounded-lg border border-ink/15 px-3 py-2 text-sm">
-            <option value="">Todos los niveles</option>
-            {[1, 2, 3, 4].map(n => <option key={n} value={n}>Inscritos en Nivel {n}</option>)}
-          </select>
-        </div>
+      <div>
+        <h1 className="font-display text-2xl font-bold text-ink">Participantes</h1>
+        <p className="text-sm text-ink/50">
+          {pestana === 'actual' && eventoActual
+            ? `Inscritos en "${eventoActual.nombre}" (ciclo en curso)`
+            : `${resultado.total} registros en la base de datos`}
+        </p>
+      </div>
+
+      <div className="mt-4 flex gap-1 rounded-full bg-parchment-2 p-1 w-fit">
+        <button onClick={() => cambiarPestana('actual')}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'actual' ? 'bg-ink text-parchment' : 'text-ink/50 hover:bg-ink/5'}`}>
+          ⭐ Inscribiéndose ahora
+        </button>
+        <button onClick={() => cambiarPestana('todos')}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'todos' ? 'bg-ink text-parchment' : 'text-ink/50 hover:bg-ink/5'}`}>
+          Todos los participantes
+        </button>
       </div>
 
       <div className="mt-5">
         <PanelExportarContacto />
       </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <input
+          placeholder="Buscar por nombre, DNI o capítulo…"
+          value={buscar}
+          onChange={e => { setBuscar(e.target.value); setPagina(1); }}
+          className="rounded-lg border border-ink/15 px-3.5 py-2 text-sm"
+        />
+        {pestana === 'todos' && (
+          <select value={filtroEvento} onChange={e => { setFiltroEvento(e.target.value); setPagina(1); }} className="rounded-lg border border-ink/15 px-3 py-2 text-sm">
+            <option value="">Todos los niveles</option>
+            {[1, 2, 3, 4].map(n => <option key={n} value={n}>Inscritos en Nivel {n}</option>)}
+          </select>
+        )}
+      </div>
+
+      {pestana === 'actual' && !eventoActual && (
+        <p className="mt-5 rounded-lg bg-ember/10 p-4 text-sm text-ember">
+          Todavía no hay ningún nivel marcado como "evento actual". Ve a <strong>Eventos</strong> y márcalo.
+        </p>
+      )}
 
       <div className="mt-5 overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
@@ -334,6 +372,9 @@ export default function AdminParticipantes() {
                 </td>
               </tr>
             ))}
+            {!cargando && resultado.datos.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Sin resultados.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
