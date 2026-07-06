@@ -22,6 +22,7 @@ router.get('/participantes', async (req, res) => {
   const offset = (pagina - 1) * limite;
   const buscar = (req.query.buscar || '').trim();
   const eventoOrden = req.query.evento ? parseInt(req.query.evento, 10) : null;
+  const soloCicloActual = req.query.solo_ciclo_actual === 'true';
 
   const params = [];
   let where = '1=1';
@@ -30,9 +31,14 @@ router.get('/participantes', async (req, res) => {
     where += ` AND (p.nombre_completo ILIKE $${params.length} OR p.dni ILIKE $${params.length} OR p.capitulo ILIKE $${params.length})`;
   }
   let joinEvento = '';
+  let ordenPor = 'p.id ASC';
   if (eventoOrden) {
     params.push(eventoOrden);
-    joinEvento = `AND EXISTS (SELECT 1 FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${params.length})`;
+    const filtroCiclo = soloCicloActual ? ' AND i.ciclo = e.ciclo_actual' : '';
+    joinEvento = `AND EXISTS (SELECT 1 FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${params.length}${filtroCiclo})`;
+    if (soloCicloActual) {
+      ordenPor = `(SELECT i.registrado_en FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${params.length}) DESC`;
+    }
   }
 
   const totalRes = await query(`SELECT COUNT(*)::int AS total FROM participantes p WHERE ${where} ${joinEvento}`, params);
@@ -42,7 +48,7 @@ router.get('/participantes', async (req, res) => {
        (SELECT array_agg(e.orden ORDER BY e.orden) FROM inscripciones i JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = p.id) AS eventos_inscritos
      FROM participantes p
      WHERE ${where} ${joinEvento}
-     ORDER BY p.id ASC
+     ORDER BY ${ordenPor}
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );
@@ -229,6 +235,10 @@ router.get('/estadisticas', async (req, res) => {
     SELECT to_char(registrado_en, 'YYYY-MM-DD') AS dia, COUNT(*)::int AS total
     FROM inscripciones GROUP BY dia ORDER BY dia`);
 
+  const porMunicipio = await query(`
+    SELECT COALESCE(departamento,'Sin depto.') AS departamento, COALESCE(municipio,'Sin municipio') AS municipio, COUNT(*)::int AS total
+    FROM participantes GROUP BY departamento, municipio ORDER BY departamento, total DESC`);
+
   const embudo = await query(`
     SELECT e.orden, e.nombre, COUNT(i.id)::int AS total
     FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
@@ -240,6 +250,14 @@ router.get('/estadisticas', async (req, res) => {
   const promocionRes = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
   const promocionActual = promocionRes.rows[0] ? parseInt(promocionRes.rows[0].valor, 10) : null;
 
+  // Agrupa municipios bajo cada departamento (para el mapa de Honduras)
+  const mapaDepartamentos = {};
+  for (const fila of porMunicipio.rows) {
+    if (!mapaDepartamentos[fila.departamento]) mapaDepartamentos[fila.departamento] = { departamento: fila.departamento, total: 0, municipios: [] };
+    mapaDepartamentos[fila.departamento].total += fila.total;
+    mapaDepartamentos[fila.departamento].municipios.push({ municipio: fila.municipio, total: fila.total });
+  }
+
   res.json({
     total_participantes: totalParticipantes.rows[0].total,
     total_ciclo_actual: totalCicloActual,
@@ -250,6 +268,7 @@ router.get('/estadisticas', async (req, res) => {
     por_departamento: porDepartamento.rows,
     por_capitulo: porCapitulo.rows,
     inscripciones_por_dia: porDia.rows,
+    mapa_departamentos: Object.values(mapaDepartamentos),
     embudo: embudo.rows
   });
 });
