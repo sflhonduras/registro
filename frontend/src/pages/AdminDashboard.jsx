@@ -5,6 +5,7 @@ import {
   LineChart, Line, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import api from '../api';
+import { numeroARomano } from '../romano';
 
 const COLORES = ['#C9932F', '#B23A2E', '#2F5D3A', '#8A6A3C', '#6B7280'];
 const RANGOS = [
@@ -54,6 +55,16 @@ export default function AdminDashboard() {
         <h1 className="font-display text-2xl font-bold text-ink">Estadísticas generales</h1>
         <p className="text-sm text-ink/50">Vista en tiempo real de la base de datos SFL. Haz clic en una tarjeta o barra para ver el detalle.</p>
       </div>
+
+      {datos.promocion_actual && (
+        <div className="flex items-center gap-4 rounded-2xl border border-gold/30 bg-gold/10 px-6 py-4">
+          <span className="font-display text-4xl font-bold text-gold">{numeroARomano(datos.promocion_actual)}</span>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Promoción actual</p>
+            <p className="text-sm text-ink/60">Se está cursando la Promoción {numeroARomano(datos.promocion_actual)} ({datos.promocion_actual}ª)</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros desde siempre" onClick={() => nav('/admin/participantes')} />
@@ -171,23 +182,6 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
       </div>
-
-      <a
-        href={`${api.defaults.baseURL}/admin/exportar/participantes.csv`}
-        onClick={(e) => {
-          e.preventDefault();
-          fetch(`${api.defaults.baseURL}/admin/exportar/participantes.csv`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
-          }).then(r => r.blob()).then(blob => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'participantes_sfl.csv'; a.click();
-          });
-        }}
-        className="inline-block rounded-full bg-ink px-6 py-2.5 text-sm font-semibold text-parchment hover:bg-ember"
-      >
-        ⬇ Exportar base de datos (CSV)
-      </a>
     </div>
   );
 }

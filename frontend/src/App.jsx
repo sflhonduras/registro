@@ -11,8 +11,10 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminParticipantes from './pages/AdminParticipantes';
 import AdminDiplomas from './pages/AdminDiplomas';
 import AdminReportes from './pages/AdminReportes';
+import AdminServidores from './pages/AdminServidores';
 import AdminEventos from './pages/AdminEventos';
 import AdminUsuarios from './pages/AdminUsuarios';
+import CocinaDashboard from './pages/CocinaDashboard';
 
 function PublicShell({ children }) {
   return (
@@ -34,11 +36,13 @@ export default function App() {
 
         <Route path="/admin">
           <Route index element={<AdminLogin />} />
+          <Route path="cocina" element={<ProtectedRoute><CocinaDashboard /></ProtectedRoute>} />
           <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
             <Route path="panel" element={<AdminDashboard />} />
             <Route path="participantes" element={<AdminParticipantes />} />
             <Route path="diplomas" element={<AdminDiplomas />} />
             <Route path="reportes" element={<AdminReportes />} />
+            <Route path="servidores" element={<AdminServidores />} />
             <Route path="eventos" element={<AdminEventos />} />
             <Route path="usuarios" element={<ProtectedRoute rolRequerido="admin"><AdminUsuarios /></ProtectedRoute>} />
           </Route>

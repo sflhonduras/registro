@@ -34,13 +34,15 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
     } catch (err) { setError(mensajeError(err)); }
   };
 
-  const guardarGraduacion = async (orden, fecha) => {
+  const guardarGraduacion = async (orden, fecha, promocion) => {
     setGuardandoGraduacion(orden);
     try {
-      await api.put(`/admin/participantes/${participante.id}/inscripciones/${orden}/graduacion`, { fecha_graduacion: fecha || null });
+      await api.put(`/admin/participantes/${participante.id}/inscripciones/${orden}/graduacion`, {
+        fecha_graduacion: fecha || null, promocion_graduacion: promocion || null
+      });
       setForm(f => ({
         ...f,
-        inscripciones: f.inscripciones.map(i => i.orden === orden ? { ...i, fecha_graduacion: fecha || null } : i)
+        inscripciones: f.inscripciones.map(i => i.orden === orden ? { ...i, fecha_graduacion: fecha || null, promocion_graduacion: promocion || null } : i)
       }));
     } catch (err) { setError(mensajeError(err)); } finally { setGuardandoGraduacion(null); }
   };
@@ -92,7 +94,10 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
           <div className="mt-5">
             <p className="mb-2 text-sm font-medium text-ink/70">Fechas de registro y graduación</p>
             <div className="space-y-2">
-              {form.inscripciones.map(insc => (
+              {form.inscripciones.map(insc => {
+                const refFecha = { current: insc.fecha_graduacion ? insc.fecha_graduacion.slice(0, 10) : '' };
+                const refPromocion = { current: insc.promocion_graduacion || '' };
+                return (
                 <div key={insc.orden} className="flex flex-wrap items-center gap-3 rounded-lg border border-ink/10 px-3 py-2 text-sm">
                   <span className="w-20 shrink-0 font-semibold text-ink">Nivel {insc.orden}</span>
                   <span className="text-ink/50">
@@ -103,14 +108,26 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                     <input
                       type="date"
                       disabled={soloLectura}
-                      defaultValue={insc.fecha_graduacion ? insc.fecha_graduacion.slice(0, 10) : ''}
-                      onBlur={e => guardarGraduacion(insc.orden, e.target.value)}
+                      defaultValue={refFecha.current}
+                      onChange={e => { refFecha.current = e.target.value; }}
+                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current)}
                       className="rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
+                    />
+                    Promoción:
+                    <input
+                      type="text"
+                      disabled={soloLectura}
+                      defaultValue={refPromocion.current}
+                      placeholder="Ej. 5"
+                      onChange={e => { refPromocion.current = e.target.value; }}
+                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current)}
+                      className="w-20 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
                     />
                     {guardandoGraduacion === insc.orden && <span className="text-xs text-gold">Guardando…</span>}
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

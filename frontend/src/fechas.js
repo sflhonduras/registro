@@ -41,3 +41,17 @@ export function formatearFechaHora(fechaConHoraISO) {
   const hora = d.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' });
   return `${fecha}, ${hora}`;
 }
+
+// Convierte una hora en formato 24h ("14:00", como la guarda <input type="time">)
+// a formato de 12 horas con AM/PM ("2:00 PM").
+export function formatearHora12(horaTexto) {
+  if (!horaTexto) return '';
+  const [hStr, mStr] = horaTexto.split(':');
+  let horas = parseInt(hStr, 10);
+  if (Number.isNaN(horas)) return horaTexto; // por si ya viene en otro formato
+  const minutos = (mStr || '00').padStart(2, '0');
+  const sufijo = horas >= 12 ? 'PM' : 'AM';
+  horas = horas % 12;
+  if (horas === 0) horas = 12;
+  return `${horas}:${minutos} ${sufijo}`;
+}

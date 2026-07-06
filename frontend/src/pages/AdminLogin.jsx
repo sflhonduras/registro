@@ -16,7 +16,7 @@ export default function AdminLogin() {
       const { data } = await api.post('/auth/login', { email, password });
       localStorage.setItem('sfl_token', data.token);
       localStorage.setItem('sfl_user', JSON.stringify(data.usuario));
-      nav('/admin/panel');
+      nav(data.usuario.rol === 'cocina' ? '/admin/cocina' : '/admin/panel');
     } catch (err) {
       setError(mensajeError(err, 'Correo o contraseña incorrectos.'));
     } finally {
@@ -34,7 +34,7 @@ export default function AdminLogin() {
         <h1 className="mt-2 text-center font-display text-2xl font-bold text-parchment">Panel administrativo SFL</h1>
         <div className="mt-6 space-y-4">
           <input
-            required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Correo electrónico"
+            required type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="Correo electrónico o usuario"
             className="w-full rounded-lg border border-parchment/15 bg-night px-4 py-2.5 text-parchment outline-none focus:border-gold"
           />
           <input

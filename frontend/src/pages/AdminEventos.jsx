@@ -68,6 +68,17 @@ export default function AdminEventos() {
       const { data } = await api.post(`/admin/eventos/${ev.orden}/nuevo-ciclo`);
       setMensajes(m => ({ ...m, [ev.id]: data.mensaje }));
       cargar();
+
+      if (ev.orden === 4) {
+        const avanzarPromocion = confirm(
+          `El Nivel IV es la graduación final del ciclo. ¿También quieres avanzar a la siguiente promoción?\n\n` +
+          `Esto suma +1 al número de promoción que se muestra en Estadísticas Generales.`
+        );
+        if (avanzarPromocion) {
+          const { data: dataPromo } = await api.post('/admin/promocion/avanzar');
+          alert(dataPromo.mensaje);
+        }
+      }
     } catch (err) {
       setMensajes(m => ({ ...m, [ev.id]: mensajeError(err) }));
     }

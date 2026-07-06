@@ -7,6 +7,7 @@ const enlaces = [
   { to: '/admin/participantes', label: 'Participantes', icon: '👥' },
   { to: '/admin/diplomas', label: 'Diplomas', icon: '🎓' },
   { to: '/admin/reportes', label: 'Reportería', icon: '📋' },
+  { to: '/admin/servidores', label: 'Servidores SFL', icon: '🙌' },
   { to: '/admin/eventos', label: 'Eventos', icon: '🗓️' },
   { to: '/admin/usuarios', label: 'Usuarios', icon: '🔑', soloAdmin: true },
 ];

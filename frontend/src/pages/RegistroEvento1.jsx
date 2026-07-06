@@ -15,6 +15,29 @@ const VACIO = {
   ha_recibido_sael: '', cantidad_saeles: '', contacto_emergencia_nombre: '', contacto_emergencia_telefono: '', observacion: ''
 };
 
+function separarTiempo(texto) {
+  if (!texto) return { cantidad: '', unidad: 'Meses' };
+  const m = String(texto).match(/(\d+)\s*(\S+)/);
+  if (!m) return { cantidad: '', unidad: 'Meses' };
+  const unidad = ['día', 'dia'].some(u => m[2].toLowerCase().startsWith(u)) ? 'Días'
+    : m[2].toLowerCase().startsWith('año') ? 'Años' : 'Meses';
+  return { cantidad: m[1], unidad };
+}
+
+function datosParaFormulario(p) {
+  const t = separarTiempo(p.tiempo_comparte_testimonio);
+  return {
+    nombre_completo: p.nombre_completo || '', dni: p.dni || '', celular: p.celular || '',
+    capitulo: p.capitulo || '', zona: p.zona || '', departamento: p.departamento || '', municipio: p.municipio || '',
+    cargo_fihnec: p.cargo_fihnec || '', estado_civil: p.estado_civil || '',
+    hijos_cantidad: p.hijos_cantidad ?? '', comparte_testimonio: p.comparte_testimonio || '',
+    tiempo_comparte_cantidad: t.cantidad, tiempo_comparte_unidad: t.unidad,
+    ha_recibido_sael: p.ha_recibido_sael || '', cantidad_saeles: p.cantidad_saeles ?? '',
+    contacto_emergencia_nombre: p.contacto_emergencia_nombre || '', contacto_emergencia_telefono: p.contacto_emergencia_telefono || '',
+    observacion: p.observacion || ''
+  };
+}
+
 function Campo({ label, children, requerido = true }) {
   return (
     <label className="block">
@@ -30,6 +53,13 @@ const claseInput = "w-full rounded-lg border border-ink/15 bg-white px-3.5 py-2.
 const claseInputDeshabilitado = "w-full rounded-lg border border-ink/10 bg-ink/5 px-3.5 py-2.5 text-ink/40 outline-none cursor-not-allowed";
 
 export default function RegistroEvento1() {
+  const [paso, setPaso] = useState('dni'); // 'dni' | 'decision' | 'formulario'
+  const [dniConsulta, setDniConsulta] = useState('');
+  const [verificando, setVerificando] = useState(false);
+  const [errorDni, setErrorDni] = useState('');
+  const [participanteExistente, setParticipanteExistente] = useState(null);
+  const [actualizarDatos, setActualizarDatos] = useState(null); // true | false | null
+
   const [form, setForm] = useState(VACIO);
   const [evento, setEvento] = useState(null);
   const [enviando, setEnviando] = useState(false);
@@ -42,20 +72,52 @@ export default function RegistroEvento1() {
   }, []);
 
   const set = (campo) => (e) => setForm(f => ({ ...f, [campo]: e.target.value }));
-
   const soloNumeros = (campo, maxLen) => (e) => {
     const v = e.target.value.replace(/[^\d]/g, '').slice(0, maxLen);
     setForm(f => ({ ...f, [campo]: v }));
   };
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
 
-  const cambiarDepartamento = (e) => {
-    setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const verificarDni = async (e) => {
+    e.preventDefault();
+    setErrorDni(''); setVerificando(true);
+    try {
+      const { data } = await api.get(`/evento1/verificar/${dniConsulta}`);
+      if (!data.existe) {
+        setForm(f => ({ ...f, dni: dniConsulta }));
+        setPaso('formulario');
+      } else if (data.ya_registrado_ciclo_actual) {
+        setErrorDni('Ya estás registrado en el Nivel I para el evento actual. No es necesario volver a inscribirte.');
+      } else {
+        setParticipanteExistente(data.participante);
+        setPaso('decision');
+      }
+    } catch {
+      setErrorDni('No se pudo verificar tu DNI. Intenta de nuevo.');
+    } finally {
+      setVerificando(false);
+    }
   };
 
-  const municipiosDisponibles = useMemo(
-    () => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [],
-    [form.departamento]
-  );
+  const elegirNoActualizar = async () => {
+    setActualizarDatos(false);
+    setEnviando(true); setError('');
+    try {
+      const r = await api.post('/registro/evento1', { dni: participanteExistente.dni, actualizar_datos: false });
+      setExito(r.data.mensaje);
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const elegirActualizar = () => {
+    setActualizarDatos(true);
+    setForm(datosParaFormulario(participanteExistente));
+    setPaso('formulario');
+  };
 
   const enviar = async (e) => {
     e.preventDefault();
@@ -66,7 +128,8 @@ export default function RegistroEvento1() {
         ...form,
         tiempo_comparte_testimonio: form.comparte_testimonio === 'Si'
           ? `${form.tiempo_comparte_cantidad} ${form.tiempo_comparte_unidad}`
-          : null
+          : null,
+        ...(actualizarDatos !== null ? { actualizar_datos: actualizarDatos } : {})
       };
       const r = await api.post('/registro/evento1', payload);
       setExito(r.data.mensaje);
@@ -103,12 +166,71 @@ export default function RegistroEvento1() {
     );
   }
 
+  // PASO 1: pedir el DNI primero
+  if (paso === 'dni') {
+    return (
+      <div className="mx-auto max-w-md px-5 py-24">
+        <BotonVolver />
+        <p className="text-center text-sm font-semibold uppercase tracking-widest text-gold">Nivel I · Mi Relación con Dios</p>
+        <h1 className="mt-1 text-center font-display text-3xl font-bold text-ink">Inscripción</h1>
+        <p className="mt-2 text-center text-ink/60">Ingresa tu número de identidad (DNI) para comenzar.</p>
+        {evento && <div className="mt-3 text-center"><InfoEvento evento={evento} /></div>}
+
+        <form onSubmit={verificarDni} className="mt-8 space-y-4">
+          <input
+            required inputMode="numeric" value={dniConsulta}
+            onChange={e => setDniConsulta(e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
+            placeholder="Número de identidad (DNI)"
+            className="w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-center text-lg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+          {errorDni && <p className="rounded-lg bg-ember/10 p-3 text-center text-sm text-ember">{errorDni}</p>}
+          <button disabled={verificando} className="w-full rounded-full bg-gold py-3.5 font-semibold text-night transition hover:bg-gold-light disabled:opacity-60">
+            {verificando ? 'Verificando…' : 'Continuar'}
+          </button>
+        </form>
+        <ProximasFechas />
+      </div>
+    );
+  }
+
+  // PASO 2: si ya existe, preguntar si quiere actualizar sus datos
+  if (paso === 'decision') {
+    return (
+      <div className="mx-auto max-w-lg px-5 py-24 text-center">
+        <BotonVolver />
+        <p className="text-4xl">👋</p>
+        <h1 className="mt-4 font-display text-2xl font-bold text-ink">
+          Hola, {participanteExistente.nombre_completo.split(' ')[0]}
+        </h1>
+        <p className="mt-3 text-ink/60">
+          Ya tenemos tus datos registrados. ¿Quieres actualizar tu información antes de confirmar tu inscripción a este evento?
+        </p>
+        {error && <p className="mt-4 rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <button onClick={elegirActualizar} className="rounded-full bg-gold px-6 py-3 font-semibold text-night hover:bg-gold-light">
+            Sí, quiero actualizar mis datos
+          </button>
+          <button onClick={elegirNoActualizar} disabled={enviando} className="rounded-full border border-ink/20 px-6 py-3 font-semibold text-ink hover:bg-ink/5 disabled:opacity-60">
+            {enviando ? 'Confirmando…' : 'No, mis datos siguen igual'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // PASO 3: formulario completo (nuevo participante, o existente actualizando datos)
   return (
     <div className="mx-auto max-w-2xl px-5 py-14">
       <BotonVolver />
       <p className="text-sm font-semibold uppercase tracking-widest text-gold">Nivel I · Mi Relación con Dios</p>
-      <h1 className="mt-1 font-display text-3xl font-bold text-ink">Formulario de inscripción</h1>
-      <p className="mt-2 text-ink/60">Completa tus datos una única vez. Todos los campos son obligatorios, salvo "Observaciones".</p>
+      <h1 className="mt-1 font-display text-3xl font-bold text-ink">
+        {actualizarDatos ? 'Actualiza tus datos' : 'Formulario de inscripción'}
+      </h1>
+      <p className="mt-2 text-ink/60">
+        {actualizarDatos
+          ? 'Revisa y corrige lo que necesites. Todos los campos son obligatorios, salvo "Observaciones".'
+          : 'Completa tus datos una única vez. Todos los campos son obligatorios, salvo "Observaciones".'}
+      </p>
       {evento && <div className="mt-3"><InfoEvento evento={evento} /></div>}
       <ProximasFechas />
 
@@ -120,7 +242,7 @@ export default function RegistroEvento1() {
             </Campo>
           </div>
           <Campo label="Número de identidad (DNI)">
-            <input required inputMode="numeric" className={claseInput} value={form.dni} onChange={soloNumeros('dni', 13)} placeholder="0801199000000" />
+            <input required disabled inputMode="numeric" className={claseInputDeshabilitado} value={form.dni} />
           </Campo>
           <Campo label="Número de celular">
             <input required inputMode="numeric" minLength={8} maxLength={8} className={claseInput}
@@ -170,7 +292,7 @@ export default function RegistroEvento1() {
 
           <Campo label="¿Comparte testimonio?">
             <select required className={claseInput} value={form.comparte_testimonio}
-              onChange={e => setForm(f => ({ ...f, comparte_testimonio: e.target.value, tiempo_comparte_cantidad: '' }))}>
+              onChange={e => setForm(f => ({ ...f, comparte_testimonio: e.target.value }))}>
               <option value="">Selecciona…</option>
               <option value="Si">Sí</option>
               <option value="No">No</option>
@@ -202,7 +324,7 @@ export default function RegistroEvento1() {
 
           <Campo label="¿Ha recibido SAEL?">
             <select required className={claseInput} value={form.ha_recibido_sael}
-              onChange={e => setForm(f => ({ ...f, ha_recibido_sael: e.target.value, cantidad_saeles: '' }))}>
+              onChange={e => setForm(f => ({ ...f, ha_recibido_sael: e.target.value }))}>
               <option value="">Selecciona…</option>
               <option value="Si">Sí</option>
               <option value="No">No</option>
@@ -239,7 +361,7 @@ export default function RegistroEvento1() {
         {error && <p className="rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
 
         <button disabled={enviando} className="w-full rounded-full bg-gold py-3.5 font-semibold text-night transition hover:bg-gold-light disabled:opacity-60">
-          {enviando ? 'Enviando…' : 'Completar inscripción'}
+          {enviando ? 'Enviando…' : actualizarDatos ? 'Guardar y confirmar inscripción' : 'Completar inscripción'}
         </button>
       </form>
     </div>
