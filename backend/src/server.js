@@ -1,7 +1,10 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
+import 'express-async-errors'; // hace que los errores en rutas async lleguen al manejador de errores, en vez de tumbar el proceso
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/admin.js';
@@ -9,7 +12,10 @@ import reportesRoutes from './routes/reportes.js';
 import servidoresRoutes from './routes/servidores.js';
 import cocinaRoutes from './routes/cocina.js';
 
-dotenv.config();
+// Red de seguridad: si algo se escapa igual, se registra pero NO se cae el servidor.
+process.on('unhandledRejection', (err) => console.error('unhandledRejection:', err));
+process.on('uncaughtException', (err) => console.error('uncaughtException:', err));
+
 const app = express();
 
 // Permite varios dominios separados por coma en CORS_ORIGIN (ej. dominio propio + subdominio de Netlify)
