@@ -32,19 +32,24 @@ router.get('/participantes', async (req, res) => {
   }
   let joinEvento = '';
   let ordenPor = 'p.id ASC';
+  let indiceParamEvento = null;
   if (eventoOrden) {
     params.push(eventoOrden);
+    indiceParamEvento = params.length;
     const filtroCiclo = soloCicloActual ? ' AND i.ciclo = e.ciclo_actual' : '';
-    joinEvento = `AND EXISTS (SELECT 1 FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${params.length}${filtroCiclo})`;
+    joinEvento = `AND EXISTS (SELECT 1 FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${indiceParamEvento}${filtroCiclo})`;
     if (soloCicloActual) {
-      ordenPor = `(SELECT i.registrado_en FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${params.length}) DESC`;
+      ordenPor = `(SELECT i.registrado_en FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${indiceParamEvento}) DESC`;
     }
   }
 
   const totalRes = await query(`SELECT COUNT(*)::int AS total FROM participantes p WHERE ${where} ${joinEvento}`, params);
   params.push(limite, offset);
+  const campoPresencial = indiceParamEvento
+    ? `(SELECT i.registrado_presencial FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${indiceParamEvento}) AS registrado_presencial`
+    : 'NULL AS registrado_presencial';
   const dataRes = await query(
-    `SELECT p.*,
+    `SELECT p.*, ${campoPresencial},
        (SELECT array_agg(e.orden ORDER BY e.orden) FROM inscripciones i JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = p.id) AS eventos_inscritos
      FROM participantes p
      WHERE ${where} ${joinEvento}
@@ -60,11 +65,12 @@ router.get('/participantes/:id', async (req, res) => {
   const { rows } = await query('SELECT * FROM participantes WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
   const insc = await query(
-    `SELECT e.orden, e.nombre, i.registrado_en, i.fecha_graduacion, i.promocion_graduacion, i.origen FROM inscripciones i
+    `SELECT e.orden, e.nombre, e.fecha_evento, e.fecha_evento_fin, i.registrado_en, i.fecha_graduacion, i.promocion_graduacion, i.origen FROM inscripciones i
      JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = $1 ORDER BY e.orden`,
     [req.params.id]
   );
-  res.json({ ...rows[0], inscripciones: insc.rows });
+  const promocionRes = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
+  res.json({ ...rows[0], inscripciones: insc.rows, promocion_actual: promocionRes.rows[0]?.valor || null });
 });
 
 const CAMPOS_PARTICIPANTE = [
@@ -116,6 +122,19 @@ router.put('/participantes/:id', requireRole('admin'), async (req, res) => {
 });
 
 // DELETE /api/admin/participantes/:id - solo admin
+// PUT /api/admin/participantes/:id/inscripciones/:orden/presencial - marcar asistencia presencial
+router.put('/participantes/:id/inscripciones/:orden/presencial', requireRole('admin'), async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const { registrado_presencial } = req.body || {};
+  const { rowCount } = await query(
+    `UPDATE inscripciones SET registrado_presencial = $1
+     WHERE participante_id = $2 AND evento_id = (SELECT id FROM eventos WHERE orden = $3)`,
+    [!!registrado_presencial, req.params.id, orden]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'Inscripción no encontrada.' });
+  res.json({ mensaje: 'Actualizado.' });
+});
+
 router.delete('/participantes/:id', requireRole('admin'), async (req, res) => {
   const { rowCount } = await query('DELETE FROM participantes WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Participante no encontrado.' });

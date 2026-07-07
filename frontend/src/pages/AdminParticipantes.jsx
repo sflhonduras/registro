@@ -285,7 +285,39 @@ export default function AdminParticipantes() {
 
   const abrirDetalle = async (p) => {
     const { data } = await api.get(`/admin/participantes/${p.id}`);
-    setSeleccionado({ ...data, eventos_inscritos: data.inscripciones.map(i => i.orden) });
+
+    // Si a algún nivel le falta fecha de graduación o promoción, se completan
+    // automáticamente: fecha = última fecha del evento de ese nivel; promoción = la actual.
+    const inscripcionesCompletadas = await Promise.all(data.inscripciones.map(async (insc) => {
+      const faltaFecha = !insc.fecha_graduacion;
+      const faltaPromocion = !insc.promocion_graduacion;
+      if (!soloLectura && (faltaFecha || faltaPromocion)) {
+        const fechaSugerida = insc.fecha_evento_fin || insc.fecha_evento;
+        const nuevaFecha = faltaFecha && fechaSugerida ? fechaSugerida.slice(0, 10) : insc.fecha_graduacion;
+        const nuevaPromocion = faltaPromocion && data.promocion_actual ? data.promocion_actual : insc.promocion_graduacion;
+        if (nuevaFecha !== insc.fecha_graduacion || nuevaPromocion !== insc.promocion_graduacion) {
+          try {
+            await api.put(`/admin/participantes/${p.id}/inscripciones/${insc.orden}/graduacion`, {
+              fecha_graduacion: nuevaFecha || null, promocion_graduacion: nuevaPromocion || null
+            });
+          } catch { /* si falla, se deja como estaba */ }
+          return { ...insc, fecha_graduacion: nuevaFecha, promocion_graduacion: nuevaPromocion };
+        }
+      }
+      return insc;
+    }));
+
+    setSeleccionado({ ...data, inscripciones: inscripcionesCompletadas, eventos_inscritos: data.inscripciones.map(i => i.orden) });
+  };
+
+  const eventoParaColumna = pestana === 'actual' ? eventoActual?.orden : (filtroEvento || null);
+
+  const toggleRegistradoPresencial = async (p) => {
+    if (soloLectura || !eventoParaColumna) return;
+    await api.put(`/admin/participantes/${p.id}/inscripciones/${eventoParaColumna}/presencial`, {
+      registrado_presencial: !p.registrado_presencial
+    });
+    cargar();
   };
 
   const totalPaginas = Math.max(Math.ceil(resultado.total / resultado.limite), 1);
@@ -311,6 +343,11 @@ export default function AdminParticipantes() {
           Todos los participantes
         </button>
       </div>
+      {eventoParaColumna && (
+        <p className="mt-2 text-xs text-ink/40">
+          ✓ Marca "Registrado" cuando la persona llegue físicamente al evento. Si alguien no se presenta, elimínalo de la lista.
+        </p>
+      )}
 
       <div className="mt-5">
         <PanelExportarContacto />
@@ -345,11 +382,12 @@ export default function AdminParticipantes() {
               <th className="px-4 py-3">DNI</th>
               <th className="px-4 py-3">Capítulo</th>
               <th className="px-4 py-3">Niveles</th>
+              {eventoParaColumna && <th className="px-4 py-3">Registrado</th>}
               <th className="px-4 py-3 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={eventoParaColumna ? 6 : 5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
             {!cargando && resultado.datos.map(p => (
               <tr key={p.id} className="border-t border-ink/5 hover:bg-parchment-2/50">
                 <td className="px-4 py-3 font-medium text-ink">{p.nombre_completo}</td>
@@ -364,6 +402,17 @@ export default function AdminParticipantes() {
                     ))}
                   </div>
                 </td>
+                {eventoParaColumna && (
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      disabled={soloLectura}
+                      checked={!!p.registrado_presencial}
+                      onChange={() => toggleRegistradoPresencial(p)}
+                      className="h-4 w-4 cursor-pointer accent-palm"
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-3 text-right">
                   <button onClick={() => abrirDetalle(p)} className="text-gold hover:underline">{soloLectura ? 'Ver' : 'Editar'}</button>
                   {!soloLectura && (
@@ -373,7 +422,7 @@ export default function AdminParticipantes() {
               </tr>
             ))}
             {!cargando && resultado.datos.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Sin resultados.</td></tr>
+              <tr><td colSpan={eventoParaColumna ? 6 : 5} className="px-4 py-8 text-center text-ink/40">Sin resultados.</td></tr>
             )}
           </tbody>
         </table>

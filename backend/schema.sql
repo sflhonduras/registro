@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS inscripciones (
   registrado_en    TIMESTAMPTZ NOT NULL DEFAULT now(),
   fecha_graduacion DATE,
   promocion_graduacion TEXT,
+  registrado_presencial BOOLEAN NOT NULL DEFAULT FALSE,
   ciclo            INTEGER NOT NULL DEFAULT 1,
   origen           TEXT NOT NULL DEFAULT 'web',        -- 'web' | 'importado'
   UNIQUE(participante_id, evento_id)
