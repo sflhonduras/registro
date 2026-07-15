@@ -14,11 +14,11 @@ function Tarjeta({ titulo, valor, nota, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-2xl border border-ink/10 bg-white p-5 text-left shadow-sm transition ${onClick ? 'hover:border-gold/40 hover:shadow-md cursor-pointer' : ''}`}
+      className={`rounded-2xl border border-ink/10 bg-white p-3 text-left shadow-sm transition ${onClick ? 'hover:border-gold/40 hover:shadow-md cursor-pointer' : ''}`}
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">{titulo}</p>
-      <p className="mt-2 font-display text-3xl font-bold text-ink">{valor}</p>
-      {nota && <p className="mt-1 text-xs text-ink/40">{nota}</p>}
+      <p className="text-[10px] font-semibold uppercase leading-tight tracking-wide text-ink/50">{titulo}</p>
+      <p className="mt-1.5 font-display text-2xl font-bold text-ink">{valor}</p>
+      {nota && <p className="mt-0.5 text-[10px] text-ink/40">{nota}</p>}
     </button>
   );
 }
@@ -52,12 +52,13 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros desde siempre" onClick={() => nav('/admin/participantes')} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros"
+          onClick={() => nav('/admin/reportes?evento=todos')} />
         {datos.por_evento.map(e => (
           <Tarjeta key={e.orden} titulo={`${e.es_actual ? '⭐ ' : ''}Nivel ${e.orden} · Ciclo #${e.ciclo_actual}`} valor={e.total_ciclo_actual}
-            nota={`${e.total_inscritos} en total histórico`}
-            onClick={() => nav(`/admin/participantes?evento=${e.orden}`)} />
+            nota={`${e.total_inscritos} histórico`}
+            onClick={() => nav(`/admin/reportes?evento=${e.orden}&alcance=ciclo_actual`)} />
         ))}
       </div>
       <a
@@ -76,6 +77,31 @@ export default function AdminDashboard() {
       >
         ⬇ Exportar estadísticas a Excel
       </a>
+
+      {datos.graduados_por_promocion && datos.graduados_por_promocion.length > 0 && (
+        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+          <p className="mb-1 font-semibold text-ink">🎓 Graduados por Promoción</p>
+          <p className="mb-4 text-xs text-ink/40">Graduados del Nivel IV agrupados por promoción. Haz clic para ver el reporte completo de esa promoción.</p>
+          <div className="flex flex-wrap gap-3">
+            {datos.graduados_por_promocion.map(p => (
+              <button
+                key={p.promocion}
+                onClick={() => nav(`/admin/reportes?evento=4&promocion=${encodeURIComponent(p.promocion)}`)}
+                className="rounded-xl border border-gold/30 bg-gold/10 px-4 py-3 text-center hover:border-gold/60 hover:shadow-md"
+              >
+                <p className="font-display text-xl font-bold text-gold">{/^\d+$/.test(p.promocion) ? numeroARomano(parseInt(p.promocion, 10)) : p.promocion}</p>
+                <p className="text-[10px] text-ink/50">{p.total} graduado(s)</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <p className="mb-1 font-semibold text-ink">🗺️ Mapa de Honduras · Participantes por departamento</p>
+        <p className="mb-4 text-xs text-ink/40">El tamaño y color de cada círculo representa cuántos participantes vienen de ese departamento. Pasa el mouse para ver los municipios.</p>
+        <HondurasMapa datos={datos.mapa_departamentos || []} />
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
@@ -112,12 +138,6 @@ export default function AdminDashboard() {
               <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 12 }} />
             </PieChart>
           </ResponsiveContainer>
-        </div>
-
-        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm lg:col-span-2">
-          <p className="mb-1 font-semibold text-ink">🗺️ Mapa de Honduras · Participantes por departamento</p>
-          <p className="mb-4 text-xs text-ink/40">El tamaño y color de cada círculo representa cuántos participantes vienen de ese departamento. Pasa el mouse para ver los municipios.</p>
-          <HondurasMapa datos={datos.mapa_departamentos || []} />
         </div>
 
         <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">

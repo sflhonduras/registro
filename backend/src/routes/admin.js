@@ -43,20 +43,23 @@ router.get('/participantes', async (req, res) => {
     }
   }
 
-  const totalRes = await query(`SELECT COUNT(*)::int AS total FROM participantes p WHERE ${where} ${joinEvento}`, params);
-  params.push(limite, offset);
   const campoPresencial = indiceParamEvento
     ? `(SELECT i.registrado_presencial FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id AND e.orden=$${indiceParamEvento}) AS registrado_presencial`
     : 'NULL AS registrado_presencial';
-  const dataRes = await query(
-    `SELECT p.*, ${campoPresencial},
-       (SELECT array_agg(e.orden ORDER BY e.orden) FROM inscripciones i JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = p.id) AS eventos_inscritos
-     FROM participantes p
-     WHERE ${where} ${joinEvento}
-     ORDER BY ${ordenPor}
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params
-  );
+  const paramsTotal = [...params];
+  const paramsData = [...params, limite, offset];
+  const [totalRes, dataRes] = await Promise.all([
+    query(`SELECT COUNT(*)::int AS total FROM participantes p WHERE ${where} ${joinEvento}`, paramsTotal),
+    query(
+      `SELECT p.*, ${campoPresencial},
+         (SELECT array_agg(e.orden ORDER BY e.orden) FROM inscripciones i JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = p.id) AS eventos_inscritos
+       FROM participantes p
+       WHERE ${where} ${joinEvento}
+       ORDER BY ${ordenPor}
+       LIMIT $${paramsData.length - 1} OFFSET $${paramsData.length}`,
+      paramsData
+    )
+  ]);
 
   res.json({ total: totalRes.rows[0].total, pagina, limite, datos: dataRes.rows });
 });
@@ -231,42 +234,45 @@ router.post('/promocion/avanzar', requireRole('admin'), async (req, res) => {
 /* ------------------------------- ESTADÍSTICAS ---------------------------- */
 
 router.get('/estadisticas', async (req, res) => {
-  const porEvento = await query(`
-    SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
-      COUNT(i.id)::int AS total_inscritos,
-      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual
-    FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
-    GROUP BY e.id ORDER BY e.orden`);
+  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion] = await Promise.all([
+    query(`
+      SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
+        COUNT(i.id)::int AS total_inscritos,
+        COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual
+      FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
+      GROUP BY e.id ORDER BY e.orden`),
+    query(`
+      SELECT COALESCE(zona,'Sin zona') AS zona, COUNT(*)::int AS total
+      FROM participantes GROUP BY zona ORDER BY total DESC`),
+    query(`
+      SELECT COALESCE(departamento,'Sin depto.') AS departamento, COUNT(*)::int AS total
+      FROM participantes GROUP BY departamento ORDER BY total DESC`),
+    query(`
+      SELECT COALESCE(capitulo,'Sin capítulo') AS capitulo, COUNT(*)::int AS total
+      FROM participantes GROUP BY capitulo ORDER BY total DESC LIMIT 15`),
+    query(`
+      SELECT to_char(registrado_en, 'YYYY-MM-DD') AS dia, COUNT(*)::int AS total
+      FROM inscripciones GROUP BY dia ORDER BY dia`),
+    query(`
+      SELECT COALESCE(departamento,'Sin depto.') AS departamento, COALESCE(municipio,'Sin municipio') AS municipio, COUNT(*)::int AS total
+      FROM participantes GROUP BY departamento, municipio ORDER BY departamento, total DESC`),
+    query(`
+      SELECT e.orden, e.nombre, COUNT(i.id)::int AS total
+      FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
+      GROUP BY e.id ORDER BY e.orden`),
+    query('SELECT COUNT(*)::int AS total FROM participantes'),
+    query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'"),
+    query(`
+      SELECT i.promocion_graduacion AS promocion, COUNT(*)::int AS total
+      FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+      WHERE e.orden = 4 AND i.fecha_graduacion IS NOT NULL
+        AND i.promocion_graduacion IS NOT NULL AND i.promocion_graduacion <> ''
+      GROUP BY i.promocion_graduacion
+      ORDER BY (CASE WHEN i.promocion_graduacion ~ '^[0-9]+$' THEN i.promocion_graduacion::int ELSE 999999 END)`)
+  ]);
 
-  const porZona = await query(`
-    SELECT COALESCE(zona,'Sin zona') AS zona, COUNT(*)::int AS total
-    FROM participantes GROUP BY zona ORDER BY total DESC`);
-
-  const porDepartamento = await query(`
-    SELECT COALESCE(departamento,'Sin depto.') AS departamento, COUNT(*)::int AS total
-    FROM participantes GROUP BY departamento ORDER BY total DESC`);
-
-  const porCapitulo = await query(`
-    SELECT COALESCE(capitulo,'Sin capítulo') AS capitulo, COUNT(*)::int AS total
-    FROM participantes GROUP BY capitulo ORDER BY total DESC LIMIT 15`);
-
-  const porDia = await query(`
-    SELECT to_char(registrado_en, 'YYYY-MM-DD') AS dia, COUNT(*)::int AS total
-    FROM inscripciones GROUP BY dia ORDER BY dia`);
-
-  const porMunicipio = await query(`
-    SELECT COALESCE(departamento,'Sin depto.') AS departamento, COALESCE(municipio,'Sin municipio') AS municipio, COUNT(*)::int AS total
-    FROM participantes GROUP BY departamento, municipio ORDER BY departamento, total DESC`);
-
-  const embudo = await query(`
-    SELECT e.orden, e.nombre, COUNT(i.id)::int AS total
-    FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
-    GROUP BY e.id ORDER BY e.orden`);
-
-  const totalParticipantes = await query('SELECT COUNT(*)::int AS total FROM participantes');
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
   const eventoActual = porEvento.rows.find(e => e.es_actual) || null;
-  const promocionRes = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
   const promocionActual = promocionRes.rows[0] ? parseInt(promocionRes.rows[0].valor, 10) : null;
 
   // Agrupa municipios bajo cada departamento (para el mapa de Honduras)
@@ -288,30 +294,33 @@ router.get('/estadisticas', async (req, res) => {
     por_capitulo: porCapitulo.rows,
     inscripciones_por_dia: porDia.rows,
     mapa_departamentos: Object.values(mapaDepartamentos),
-    embudo: embudo.rows
+    embudo: embudo.rows,
+    graduados_por_promocion: porPromocion.rows
   });
 });
 
 // GET /api/admin/estadisticas/excel -> descarga un libro de Excel con varias hojas
 router.get('/estadisticas/excel', async (req, res) => {
-  const porEvento = await query(`
-    SELECT e.orden AS "Nivel", e.nombre AS "Nombre", e.ciclo_actual AS "Ciclo actual",
-      COUNT(i.id)::int AS "Total histórico",
-      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS "Total ciclo actual"
-    FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
-    GROUP BY e.id ORDER BY e.orden`);
-  const porZona = await query(`
-    SELECT COALESCE(zona,'Sin zona') AS "Zona", COUNT(*)::int AS "Total"
-    FROM participantes GROUP BY zona ORDER BY "Total" DESC`);
-  const porDepartamento = await query(`
-    SELECT COALESCE(departamento,'Sin depto.') AS "Departamento", COUNT(*)::int AS "Total"
-    FROM participantes GROUP BY departamento ORDER BY "Total" DESC`);
-  const porCapitulo = await query(`
-    SELECT COALESCE(capitulo,'Sin capítulo') AS "Capítulo", COUNT(*)::int AS "Total"
-    FROM participantes GROUP BY capitulo ORDER BY "Total" DESC`);
-  const porDia = await query(`
-    SELECT to_char(registrado_en, 'YYYY-MM-DD') AS "Fecha", COUNT(*)::int AS "Inscripciones"
-    FROM inscripciones GROUP BY "Fecha" ORDER BY "Fecha"`);
+  const [porEvento, porZona, porDepartamento, porCapitulo, porDia] = await Promise.all([
+    query(`
+      SELECT e.orden AS "Nivel", e.nombre AS "Nombre", e.ciclo_actual AS "Ciclo actual",
+        COUNT(i.id)::int AS "Total histórico",
+        COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS "Total ciclo actual"
+      FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
+      GROUP BY e.id ORDER BY e.orden`),
+    query(`
+      SELECT COALESCE(zona,'Sin zona') AS "Zona", COUNT(*)::int AS "Total"
+      FROM participantes GROUP BY zona ORDER BY "Total" DESC`),
+    query(`
+      SELECT COALESCE(departamento,'Sin depto.') AS "Departamento", COUNT(*)::int AS "Total"
+      FROM participantes GROUP BY departamento ORDER BY "Total" DESC`),
+    query(`
+      SELECT COALESCE(capitulo,'Sin capítulo') AS "Capítulo", COUNT(*)::int AS "Total"
+      FROM participantes GROUP BY capitulo ORDER BY "Total" DESC`),
+    query(`
+      SELECT to_char(registrado_en, 'YYYY-MM-DD') AS "Fecha", COUNT(*)::int AS "Inscripciones"
+      FROM inscripciones GROUP BY "Fecha" ORDER BY "Fecha"`)
+  ]);
 
   const libro = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(libro, xlsx.utils.json_to_sheet(porEvento.rows), 'Por Nivel');

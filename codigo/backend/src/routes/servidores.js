@@ -15,13 +15,26 @@ router.use((req, res, next) => {
 
 const COLUMNAS_EXPORT = {
   nombre_completo: 'Nombre Completo',
+  dni: 'DNI',
   capitulo: 'Capítulo',
+  zona: 'Zona',
   celular: 'Celular',
   estado_civil: 'Estado Civil',
   hijos_cantidad: 'Hijos',
   fecha_nacimiento: 'Fecha de Nacimiento',
+  cargo_actual: 'Cargo Actual',
   email: 'E-mail'
 };
+
+// Campos editables desde el panel (además de los de siempre).
+const CAMPOS_ARRAY = ['cargos_desempenados', 'formacion_oficial', 'otras_participaciones'];
+const CAMPOS_EDITABLES = [
+  'nombre_completo', 'dni', 'capitulo', 'celular', 'estado_civil', 'hijos_cantidad',
+  'fecha_nacimiento', 'email', 'participara_evento',
+  'nombre_esposa', 'nietos_cantidad', 'profesion', 'contacto_emergencia_telefono', 'foto',
+  'fecha_inscripcion_capitulo', 'tiempo_fihnec', 'cargo_actual', 'zona', 'tipo_testimonio',
+  ...CAMPOS_ARRAY
+];
 
 router.get('/excel', async (req, res) => {
   const { rows } = await query('SELECT * FROM servidores ORDER BY nombre_completo ASC');
@@ -79,29 +92,39 @@ router.get('/', async (req, res) => {
 router.post('/', requireRole('admin'), async (req, res) => {
   const b = req.body || {};
   if (!b.nombre_completo) return res.status(400).json({ error: 'El nombre completo es obligatorio.' });
+
+  const datos = { ...b };
+  datos.nombre_completo = normalizarNombre(b.nombre_completo);
+  if (b.capitulo) datos.capitulo = normalizarNombre(b.capitulo);
+  if (b.celular) datos.celular = soloDigitos(b.celular);
+  if (b.contacto_emergencia_telefono) datos.contacto_emergencia_telefono = soloDigitos(b.contacto_emergencia_telefono);
+  if (b.nombre_esposa) datos.nombre_esposa = normalizarNombre(b.nombre_esposa);
+
+  const cols = CAMPOS_EDITABLES.filter(c => datos[c] !== undefined);
+  const nombresCols = cols.join(', ');
+  const marcadores = cols.map((_, i) => `$${i + 1}`).join(', ');
+  const vals = cols.map(c => datos[c]);
+
   const { rows } = await query(
-    `INSERT INTO servidores (nombre_completo, capitulo, celular, estado_civil, hijos_cantidad, fecha_nacimiento, email, participara_evento)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [
-      normalizarNombre(b.nombre_completo), b.capitulo ? normalizarNombre(b.capitulo) : null,
-      b.celular ? soloDigitos(b.celular) : null, b.estado_civil || null,
-      b.hijos_cantidad ? parseInt(b.hijos_cantidad, 10) : null, b.fecha_nacimiento || null,
-      b.email || null, !!b.participara_evento
-    ]
+    `INSERT INTO servidores (${nombresCols}) VALUES (${marcadores}) RETURNING *`,
+    vals
   );
   res.status(201).json(rows[0]);
 });
 
 router.put('/:id', requireRole('admin'), async (req, res) => {
   const b = req.body || {};
-  const campos = ['nombre_completo', 'capitulo', 'celular', 'estado_civil', 'hijos_cantidad', 'fecha_nacimiento', 'email', 'participara_evento'];
-  const cols = campos.filter(c => b[c] !== undefined);
+  const datos = { ...b };
+  if (b.nombre_completo) datos.nombre_completo = normalizarNombre(b.nombre_completo);
+  if (b.capitulo) datos.capitulo = normalizarNombre(b.capitulo);
+  if (b.celular) datos.celular = soloDigitos(b.celular);
+  if (b.contacto_emergencia_telefono) datos.contacto_emergencia_telefono = soloDigitos(b.contacto_emergencia_telefono);
+  if (b.nombre_esposa) datos.nombre_esposa = normalizarNombre(b.nombre_esposa);
+
+  const cols = CAMPOS_EDITABLES.filter(c => datos[c] !== undefined);
   if (cols.length === 0) return res.status(400).json({ error: 'Nada para actualizar.' });
-  if (b.nombre_completo) b.nombre_completo = normalizarNombre(b.nombre_completo);
-  if (b.capitulo) b.capitulo = normalizarNombre(b.capitulo);
-  if (b.celular) b.celular = soloDigitos(b.celular);
   const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
-  const vals = cols.map(c => b[c]);
+  const vals = cols.map(c => datos[c]);
   vals.push(req.params.id);
   const { rows } = await query(
     `UPDATE servidores SET ${setClause}, actualizado_en = now() WHERE id = $${vals.length} RETURNING *`,
@@ -109,6 +132,78 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
   res.json(rows[0]);
+});
+
+// POST /api/admin/servidores/reiniciar-participacion -> pone en falso el checkbox
+// "Participará en el evento" para TODOS los servidores de una vez (ej. antes de un evento nuevo).
+router.post('/reiniciar-participacion', requireRole('admin'), async (req, res) => {
+  const { rowCount } = await query('UPDATE servidores SET participara_evento = FALSE WHERE participara_evento = TRUE');
+  res.json({ mensaje: `Se reinició la participación de ${rowCount} servidor(es).`, actualizados: rowCount });
+});
+
+// GET /api/admin/servidores/:id/ficha -> PDF de una sola persona, con todos sus datos.
+router.get('/:id/ficha', async (req, res) => {
+  const { rows } = await query('SELECT * FROM servidores WHERE id = $1', [req.params.id]);
+  const s = rows[0];
+  if (!s) return res.status(404).json({ error: 'Servidor no encontrado.' });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="ficha_${(s.nombre_completo || 'servidor').replace(/\s+/g, '_')}.pdf"`);
+
+  const doc = new PDFDocument({ size: 'letter', margin: 40 });
+  doc.pipe(res);
+
+  doc.fontSize(16).font('Helvetica-Bold').text('FIHNEC · Ficha del Servidor SFL', { align: 'center' });
+  doc.moveDown(1.2);
+
+  if (s.foto) {
+    try {
+      const base64 = s.foto.split(',').pop();
+      const buffer = Buffer.from(base64, 'base64');
+      doc.image(buffer, doc.page.width - 40 - 100, 90, { width: 100, height: 100, fit: [100, 100] });
+    } catch { /* si la foto no se puede leer, se omite sin romper el PDF */ }
+  }
+
+  const fila = (etiqueta, valor) => {
+    doc.font('Helvetica-Bold').fontSize(10).text(etiqueta, { continued: true });
+    doc.font('Helvetica').fontSize(10).text(`  ${valor ?? '—'}`);
+    doc.moveDown(0.3);
+  };
+
+  const seccion = (titulo) => {
+    doc.moveDown(0.5);
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#B23A2E').text(titulo);
+    doc.fillColor('black');
+    doc.moveDown(0.3);
+  };
+
+  seccion('Datos Generales');
+  fila('Nombre completo:', s.nombre_completo);
+  fila('DNI:', s.dni);
+  fila('Fecha de nacimiento:', s.fecha_nacimiento);
+  fila('Estado civil:', s.estado_civil);
+  if (s.nombre_esposa) fila('Nombre de la esposa:', s.nombre_esposa);
+  fila('Hijos:', s.hijos_cantidad);
+  fila('Nietos:', s.nietos_cantidad);
+  fila('Profesión:', s.profesion);
+  fila('Celular:', s.celular);
+  fila('Contacto de emergencia:', s.contacto_emergencia_telefono);
+  fila('E-mail:', s.email);
+
+  seccion('Datos Organizacionales');
+  fila('Capítulo:', s.capitulo);
+  fila('Zona:', s.zona);
+  fila('Fecha de inscripción al capítulo:', s.fecha_inscripcion_capitulo);
+  fila('Tiempo en FIHNEC:', s.tiempo_fihnec);
+  fila('Cargo actual:', s.cargo_actual);
+  fila('Cargos desempeñados:', (s.cargos_desempenados || []).join(', ') || '—');
+
+  seccion('Testimonio y Formación');
+  fila('Tipo de testimonio:', s.tipo_testimonio);
+  fila('Formación oficial:', (s.formacion_oficial || []).join(', ') || '—');
+  fila('Otras participaciones:', (s.otras_participaciones || []).join(', ') || '—');
+
+  doc.end();
 });
 
 router.delete('/:id', requireRole('admin'), async (req, res) => {

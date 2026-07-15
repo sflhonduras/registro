@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../api';
 import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS } from '../listas';
 
 const NIVELES = [
   { valor: 'todos', etiqueta: 'Todos los participantes' },
+  { valor: 'actual', etiqueta: '⭐ Evento actual' },
   { valor: '1', etiqueta: 'Nivel I' },
   { valor: '2', etiqueta: 'Nivel II' },
   { valor: '3', etiqueta: 'Nivel III' },
@@ -13,14 +15,17 @@ const NIVELES = [
 const CAMPOS_POR_DEFECTO = ['nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'cargo_fihnec'];
 
 export default function AdminReportes() {
+  const [parametrosUrl] = useSearchParams();
   const [camposDisponibles, setCamposDisponibles] = useState(null);
-  const [nivel, setNivel] = useState('todos');
-  const [alcance, setAlcance] = useState('historico');
+  const [nivel, setNivel] = useState(parametrosUrl.get('evento') || 'todos');
+  const [alcance, setAlcance] = useState(parametrosUrl.get('alcance') || 'historico');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [zona, setZona] = useState('');
   const [departamento, setDepartamento] = useState('');
   const [capitulo, setCapitulo] = useState('');
+  const [buscar, setBuscar] = useState('');
+  const [promocion] = useState(parametrosUrl.get('promocion') || '');
   const [campos, setCampos] = useState(CAMPOS_POR_DEFECTO);
   const [resultado, setResultado] = useState(null);
   const [cargando, setCargando] = useState(false);
@@ -28,7 +33,14 @@ export default function AdminReportes() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/admin/reportes/campos-disponibles').then(r => setCamposDisponibles(r.data));
+    api.get('/admin/reportes/campos-disponibles').then(r => {
+      setCamposDisponibles(r.data);
+      if (parametrosUrl.get('evento')) {
+        // Viene desde una tarjeta de Estadísticas: genera el reporte de una vez.
+        setTimeout(() => generar(), 0);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleCampo = (campo) => {
@@ -40,11 +52,13 @@ export default function AdminReportes() {
     params.set('evento', nivel);
     if (nivel !== 'todos') {
       params.set('alcance', alcance);
-      if (alcance === 'rango') { params.set('desde', desde); params.set('hasta', hasta); }
     }
+    if (alcance === 'rango' && desde && hasta) { params.set('alcance', 'rango'); params.set('desde', desde); params.set('hasta', hasta); }
+    if (promocion) params.set('promocion', promocion);
     if (zona) params.set('zona', zona);
     if (departamento) params.set('departamento', departamento);
     if (capitulo) params.set('capitulo', capitulo);
+    if (buscar) params.set('buscar', buscar);
     params.set('campos', campos.join(','));
     return params;
   };
@@ -122,18 +136,16 @@ export default function AdminReportes() {
             </select>
           </label>
 
-          {nivel !== 'todos' && (
-            <label className="text-sm">
-              <span className="mb-1 block text-ink/60">¿Qué registros?</span>
-              <select value={alcance} onChange={e => setAlcance(e.target.value)} className={claseSelect}>
-                <option value="historico">Todo el historial</option>
-                <option value="ciclo_actual">Solo el ciclo actual</option>
-                <option value="rango">Rango de fechas personalizado</option>
-              </select>
-            </label>
-          )}
+          <label className="text-sm">
+            <span className="mb-1 block text-ink/60">¿Qué registros?</span>
+            <select value={alcance} onChange={e => setAlcance(e.target.value)} className={claseSelect}>
+              <option value="historico">Todo el historial</option>
+              {nivel !== 'todos' && <option value="ciclo_actual">Solo el ciclo actual</option>}
+              <option value="rango">Rango de fechas personalizado</option>
+            </select>
+          </label>
 
-          {nivel !== 'todos' && alcance === 'rango' && (
+          {alcance === 'rango' && (
             <>
               <label className="text-sm">
                 <span className="mb-1 block text-ink/60">Desde</span>
@@ -145,6 +157,11 @@ export default function AdminReportes() {
               </label>
             </>
           )}
+
+          <label className="text-sm">
+            <span className="mb-1 block text-ink/60">Buscar (nombre, DNI, capítulo o celular)</span>
+            <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Escribe para filtrar" className={claseSelect} />
+          </label>
 
           <label className="text-sm">
             <span className="mb-1 block text-ink/60">Zona (opcional)</span>

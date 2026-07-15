@@ -45,7 +45,16 @@ router.get('/campos-disponibles', (req, res) => {
 
 // Construye la consulta SQL de forma segura a partir de los filtros recibidos.
 async function construirConsulta(q) {
-  const evento = q.evento && q.evento !== 'todos' ? parseInt(q.evento, 10) : null;
+  let evento = q.evento && q.evento !== 'todos' ? q.evento : null;
+
+  // "Evento actual": resuelve en tiempo real cuál nivel está marcado como activo.
+  if (evento === 'actual') {
+    const { rows } = await query('SELECT orden FROM eventos WHERE es_actual = TRUE LIMIT 1');
+    evento = rows[0] ? rows[0].orden : null;
+  } else if (evento) {
+    evento = parseInt(evento, 10);
+  }
+
   const camposPedidos = (q.campos || 'nombre_completo,dni,celular,capitulo,zona,cargo_fihnec')
     .split(',').map(c => c.trim()).filter(Boolean);
 
@@ -82,17 +91,33 @@ async function construirConsulta(q) {
       condiciones.push(`i.registrado_en BETWEEN $${params.length - 1} AND $${params.length}`);
     }
     // alcance 'historico' (o sin especificar) = sin filtro extra de fecha
+
+    if (q.promocion) {
+      params.push(q.promocion);
+      condiciones.push(`i.promocion_graduacion = $${params.length}`);
+    }
+  } else if (q.alcance === 'rango' && q.desde && q.hasta) {
+    // Sin nivel específico ("todos"): el rango de fechas filtra por fecha de registro al sistema.
+    params.push(q.desde, `${q.hasta} 23:59:59`);
+    condiciones.push(`p.creado_en BETWEEN $${params.length - 1} AND $${params.length}`);
   }
 
   if (q.zona) { params.push(q.zona); condiciones.push(`p.zona = $${params.length}`); }
   if (q.departamento) { params.push(q.departamento); condiciones.push(`p.departamento = $${params.length}`); }
   if (q.capitulo) { params.push(`%${q.capitulo}%`); condiciones.push(`p.capitulo ILIKE $${params.length}`); }
 
+  // Búsqueda general: nombre, DNI, capítulo o celular contienen el texto buscado.
+  if (q.buscar) {
+    params.push(`%${q.buscar}%`);
+    const idx = params.length;
+    condiciones.push(`(p.nombre_completo ILIKE $${idx} OR p.dni ILIKE $${idx} OR p.capitulo ILIKE $${idx} OR p.celular ILIKE $${idx})`);
+  }
+
   const where = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
   const sql = `SELECT ${selects.join(', ')} ${desdeJoin} ${where} ORDER BY p.nombre_completo ASC`;
 
   const { rows } = await query(sql, params);
-  return { columnas, filas: rows };
+  return { columnas, filas: rows, evento_resuelto: evento };
 }
 
 router.get('/', async (req, res) => {

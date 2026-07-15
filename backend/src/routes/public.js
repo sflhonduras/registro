@@ -32,10 +32,18 @@ async function inscribirEnCicloActual(participanteId, evento, origen = 'web') {
     );
     return { yaRegistrado: false, reactivado: true };
   }
-  await query(
-    'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
+  // ON CONFLICT DO NOTHING: si dos peticiones casi simultáneas (doble clic, reintento de red)
+  // llegan aquí a la vez, la base de datos garantiza que solo una cree la fila — la otra
+  // no truena, simplemente no inserta nada (lo detectamos abajo por RETURNING vacío).
+  const insertRes = await query(
+    `INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (participante_id, evento_id) DO NOTHING RETURNING id`,
     [participanteId, evento.id, origen, evento.ciclo_actual]
   );
+  if (!insertRes.rows[0]) {
+    // Otra petición concurrente ya insertó esta misma inscripción justo antes.
+    return { yaRegistrado: true };
+  }
   return { yaRegistrado: false, reactivado: false };
 }
 
@@ -130,12 +138,16 @@ router.post('/registro/evento1', async (req, res) => {
 
     const celular = soloDigitos(b.celular);
     const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
+    // ON CONFLICT (dni) DO NOTHING: si dos peticiones con el mismo DNI llegan casi a la vez
+    // (doble clic, reintento por mala conexión), solo una crea el registro; la otra lo detecta
+    // abajo y reutiliza el mismo participante en vez de fallar o duplicar.
     const insertParticipante = await query(
       `INSERT INTO participantes
         (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec,
          estado_civil, hijos_cantidad, comparte_testimonio, tiempo_comparte_testimonio,
          ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       ON CONFLICT (dni) DO NOTHING
        RETURNING id`,
       [
         normalizarNombre(b.nombre_completo), dni, celular, normalizarNombre(b.capitulo), b.zona,
@@ -146,7 +158,12 @@ router.post('/registro/evento1', async (req, res) => {
         normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null
       ]
     );
-    participanteId = insertParticipante.rows[0].id;
+    if (insertParticipante.rows[0]) {
+      participanteId = insertParticipante.rows[0].id;
+    } else {
+      const yaExiste = await query('SELECT id FROM participantes WHERE dni = $1', [dni]);
+      participanteId = yaExiste.rows[0].id;
+    }
   } else {
     participanteId = existente.id;
 

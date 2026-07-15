@@ -10,7 +10,9 @@
     "import-excel": "node scripts/import_excel.js",
     "import-graduados": "node scripts/import_graduados.js",
     "import-servidores": "node scripts/import_servidores.js",
-    "create-admin": "node scripts/create_admin.js"
+    "create-admin": "node scripts/create_admin.js",
+    "normalizar-textos": "node scripts/normalizar_textos.js",
+    "rellenar-departamentos": "node scripts/rellenar_departamentos.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
