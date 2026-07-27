@@ -122,7 +122,8 @@ export const CARGOS_FIHNEC = [
   "Director Nacional DRAS",
   "Sub Director Nacional DRAS",
   "Coordinador Zonal DRAS",
-  "Servidor"
+  "Servidor",
+  "Servidor del SFL"
 ];
 
 export const ESTADOS_CIVILES = ["Soltero", "Casado", "Viudo", "Divorciado"];

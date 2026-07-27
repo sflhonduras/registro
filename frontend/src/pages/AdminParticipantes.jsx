@@ -34,15 +34,15 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
     } catch (err) { setError(mensajeError(err)); }
   };
 
-  const guardarGraduacion = async (orden, fecha, promocion) => {
+  const guardarGraduacion = async (orden, fecha, promocion, ciclo) => {
     setGuardandoGraduacion(orden);
     try {
       await api.put(`/admin/participantes/${participante.id}/inscripciones/${orden}/graduacion`, {
-        fecha_graduacion: fecha || null, promocion_graduacion: promocion || null
+        fecha_graduacion: fecha || null, promocion_graduacion: promocion || null, ciclo: ciclo || null
       });
       setForm(f => ({
         ...f,
-        inscripciones: f.inscripciones.map(i => i.orden === orden ? { ...i, fecha_graduacion: fecha || null, promocion_graduacion: promocion || null } : i)
+        inscripciones: f.inscripciones.map(i => i.orden === orden ? { ...i, fecha_graduacion: fecha || null, promocion_graduacion: promocion || null, ciclo: ciclo ? parseInt(ciclo, 10) : i.ciclo } : i)
       }));
     } catch (err) { setError(mensajeError(err)); } finally { setGuardandoGraduacion(null); }
   };
@@ -97,20 +97,35 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
               {form.inscripciones.map(insc => {
                 const refFecha = { current: insc.fecha_graduacion ? insc.fecha_graduacion.slice(0, 10) : '' };
                 const refPromocion = { current: insc.promocion_graduacion || '' };
+                const refCiclo = { current: insc.ciclo ?? '' };
+                const cicloDesfasado = insc.ciclo !== insc.ciclo_actual;
                 return (
                 <div key={insc.orden} className="flex flex-wrap items-center gap-3 rounded-lg border border-ink/10 px-3 py-2 text-sm">
                   <span className="w-20 shrink-0 font-semibold text-ink">Nivel {insc.orden}</span>
                   <span className="text-ink/50">
                     Registrado: {new Date(insc.registrado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </span>
-                  <span className="ml-auto flex items-center gap-2 text-ink/60">
+                  <span className="ml-auto flex flex-wrap items-center gap-2 text-ink/60">
+                    Ciclo:
+                    <input
+                      type="number"
+                      disabled={soloLectura}
+                      defaultValue={refCiclo.current}
+                      title={`El ciclo en vivo de este nivel va en el #${insc.ciclo_actual}. Si esta persona es de una promoción histórica (Excel), ponle un número que no coincida (ej. 0) para que no se mezcle con el grupo activo.`}
+                      onChange={e => { refCiclo.current = e.target.value; }}
+                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
+                      className="w-16 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
+                    />
+                    <span className={`text-xs ${cicloDesfasado ? 'text-gold' : 'text-ink/30'}`}>
+                      (en vivo: #{insc.ciclo_actual}{cicloDesfasado ? ' · histórico' : ' · activo'})
+                    </span>
                     Graduación:
                     <input
                       type="date"
                       disabled={soloLectura}
                       defaultValue={refFecha.current}
                       onChange={e => { refFecha.current = e.target.value; }}
-                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current)}
+                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
                       className="rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
                     />
                     Promoción:
@@ -120,7 +135,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                       defaultValue={refPromocion.current}
                       placeholder="Ej. 5"
                       onChange={e => { refPromocion.current = e.target.value; }}
-                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current)}
+                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
                       className="w-20 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
                     />
                     {guardandoGraduacion === insc.orden && <span className="text-xs text-gold">Guardando…</span>}
@@ -342,13 +357,13 @@ export default function AdminParticipantes() {
         </p>
       </div>
 
-      <div className="mt-4 flex gap-1 rounded-full bg-parchment-2 p-1 w-fit">
+      <div className="mt-4 flex gap-2 w-fit">
         <button onClick={() => cambiarPestana('actual')}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'actual' ? 'bg-ink text-parchment' : 'text-ink/50 hover:bg-ink/5'}`}>
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'actual' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
           ⭐ Inscribiéndose ahora
         </button>
         <button onClick={() => cambiarPestana('todos')}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'todos' ? 'bg-ink text-parchment' : 'text-ink/50 hover:bg-ink/5'}`}>
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'todos' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
           Todos los participantes
         </button>
       </div>
@@ -367,7 +382,7 @@ export default function AdminParticipantes() {
           placeholder="Buscar por nombre, DNI o capítulo…"
           value={buscar}
           onChange={e => { setBuscar(e.target.value); setPagina(1); }}
-          className="rounded-lg border border-ink/15 px-3.5 py-2 text-sm"
+          className="w-full sm:w-80 rounded-lg border border-ink/15 px-3.5 py-2.5 text-sm"
         />
         {pestana === 'todos' && (
           <select value={filtroEvento} onChange={e => { setFiltroEvento(e.target.value); setPagina(1); }} className="rounded-lg border border-ink/15 px-3 py-2 text-sm">

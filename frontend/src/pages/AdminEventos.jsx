@@ -111,7 +111,7 @@ export default function AdminEventos() {
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-pale font-display font-bold text-ember">{ev.orden}</span>
                 <input
                   disabled={soloLectura}
-                  className="border-b border-transparent bg-transparent font-display text-lg font-semibold text-ink focus:border-gold outline-none disabled:bg-transparent"
+                  className="w-56 sm:w-96 border-b border-transparent bg-transparent font-display text-lg font-semibold text-ink focus:border-gold outline-none disabled:bg-transparent"
                   value={ev.nombre} onChange={e => actualizarCampo(ev.id, 'nombre', e.target.value)}
                 />
                 <span className="rounded-full bg-ink/5 px-2.5 py-0.5 text-xs font-medium text-ink/50">Ciclo #{ev.ciclo_actual}</span>

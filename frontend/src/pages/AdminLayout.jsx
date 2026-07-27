@@ -20,7 +20,7 @@ export default function AdminLayout() {
   const [eventoActual, setEventoActual] = useState(null);
 
   useEffect(() => {
-    api.get('/admin/estadisticas').then(r => {
+    api.get('/admin/evento-actual-resumen').then(r => {
       setTotalRegistros(r.data.evento_actual?.total_ciclo_actual ?? 0);
       setEventoActual(r.data.evento_actual);
     }).catch(() => {});

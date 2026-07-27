@@ -12,8 +12,9 @@
     "import-servidores": "node scripts/import_servidores.js",
     "create-admin": "node scripts/create_admin.js",
     "normalizar-textos": "node scripts/normalizar_textos.js",
-    "rellenar-departamentos": "node scripts/rellenar_departamentos.js"
-  },
+    "rellenar-departamentos": "node scripts/rellenar_departamentos.js",
+	"normalizar-ubicaciones": "node scripts/normalizar_ubicaciones.js"
+  }
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

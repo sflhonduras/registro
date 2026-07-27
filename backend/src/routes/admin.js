@@ -68,7 +68,7 @@ router.get('/participantes/:id', async (req, res) => {
   const { rows } = await query('SELECT * FROM participantes WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
   const insc = await query(
-    `SELECT e.orden, e.nombre, e.fecha_evento, e.fecha_evento_fin, i.registrado_en, i.fecha_graduacion, i.promocion_graduacion, i.origen FROM inscripciones i
+    `SELECT e.orden, e.nombre, e.fecha_evento, e.fecha_evento_fin, e.ciclo_actual, i.ciclo, i.registrado_en, i.fecha_graduacion, i.promocion_graduacion, i.origen FROM inscripciones i
      JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = $1 ORDER BY e.orden`,
     [req.params.id]
   );
@@ -233,6 +233,20 @@ router.post('/promocion/avanzar', requireRole('admin'), async (req, res) => {
 
 /* ------------------------------- ESTADÍSTICAS ---------------------------- */
 
+// GET /api/admin/evento-actual-resumen -> versión liviana, solo para el contador del panel
+// lateral (AdminLayout). A diferencia de /estadisticas, NO calcula zonas, departamentos,
+// mapa ni promociones — solo una consulta puntual, para que entrar al panel se sienta rápido.
+router.get('/evento-actual-resumen', async (req, res) => {
+  const { rows } = await query(`
+    SELECT e.orden, e.nombre, e.ciclo_actual,
+      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual
+    FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
+    WHERE e.es_actual = TRUE
+    GROUP BY e.id
+  `);
+  res.json({ evento_actual: rows[0] || null });
+});
+
 router.get('/estadisticas', async (req, res) => {
   const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion] = await Promise.all([
     query(`
@@ -385,16 +399,32 @@ router.delete('/usuarios/:id', requireRole('admin'), async (req, res) => {
 });
 
 // PUT /api/admin/participantes/:id/inscripciones/:orden/graduacion - fijar/quitar fecha de graduación
+// PUT /api/admin/participantes/:id/inscripciones/:orden/graduacion
+// Permite corregir a mano fecha de graduación, promoción y ciclo de una inscripción puntual.
+// Pensado sobre todo para las 4 promociones que vivieron en Excel antes de este sistema:
+// asignarles un ciclo "histórico" (ej. 0) evita que se mezclen con el ciclo en vivo actual.
 router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('admin'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
-  const { fecha_graduacion, promocion_graduacion } = req.body || {};
+  const { fecha_graduacion, promocion_graduacion, ciclo } = req.body || {};
+
+  const campos = ['fecha_graduacion = $1', 'promocion_graduacion = $2'];
+  const valores = [fecha_graduacion || null, promocion_graduacion || null];
+
+  if (ciclo !== undefined && ciclo !== null && ciclo !== '') {
+    const cicloNum = parseInt(ciclo, 10);
+    if (Number.isNaN(cicloNum)) return res.status(400).json({ error: 'El ciclo debe ser un número.' });
+    campos.push(`ciclo = $${valores.length + 1}`);
+    valores.push(cicloNum);
+  }
+
+  valores.push(req.params.id, orden);
   const { rowCount } = await query(
-    `UPDATE inscripciones SET fecha_graduacion = $1, promocion_graduacion = $2
-     WHERE participante_id = $3 AND evento_id = (SELECT id FROM eventos WHERE orden = $4)`,
-    [fecha_graduacion || null, promocion_graduacion || null, req.params.id, orden]
+    `UPDATE inscripciones SET ${campos.join(', ')}
+     WHERE participante_id = $${valores.length - 1} AND evento_id = (SELECT id FROM eventos WHERE orden = $${valores.length})`,
+    valores
   );
   if (!rowCount) return res.status(404).json({ error: 'Inscripción no encontrada.' });
-  res.json({ mensaje: 'Datos de graduación guardados.' });
+  res.json({ mensaje: 'Datos guardados.' });
 });
 
 /* -------------------------------- DIPLOMAS -------------------------------- */
