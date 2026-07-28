@@ -36,16 +36,39 @@ for (const [nombre, depto] of Object.entries(mapaMunicipioDepartamento)) {
   MUNICIPIOS_OFICIALES[normalizarClave(nombre)] = { nombreOficial: nombre, departamento: depto };
 }
 
+// Lista de departamentos oficiales normalizada, para detectar "municipio + departamento pegado"
+// (ej. alguien escribió "Choloma Cortes" o "Gracias Lempira" en el campo municipio).
+const DEPARTAMENTOS_NORMALIZADOS = [...new Set(Object.values(mapaMunicipioDepartamento))]
+  .map(oficial => ({ normal: normalizarClave(oficial), oficial }))
+  .sort((a, b) => b.normal.length - a.normal.length); // más largos primero (ej. "santa barbara" antes que "la paz")
+
 const aplicar = process.argv.includes('--aplicar');
 
 function buscarMunicipio(valor) {
   const clave = normalizarClave(valor);
+
   const nombreOficialAlias = ALIAS_MUNICIPIO[clave];
   if (nombreOficialAlias) {
     const claveOficial = normalizarClave(nombreOficialAlias);
-    return MUNICIPIOS_OFICIALES[claveOficial] || null;
+    if (MUNICIPIOS_OFICIALES[claveOficial]) return MUNICIPIOS_OFICIALES[claveOficial];
   }
-  return MUNICIPIOS_OFICIALES[clave] || null;
+
+  if (MUNICIPIOS_OFICIALES[clave]) return MUNICIPIOS_OFICIALES[clave];
+
+  // "Municipio + Departamento pegado": si el texto termina con el nombre de un departamento,
+  // separamos esa parte y probamos si lo que queda es un municipio conocido. Cuando el nombre
+  // del municipio existe en más de un departamento (ej. "Santa Rita" en Copán y en Yoro), se usa
+  // el departamento que la persona escribió explícitamente, no el que trae el mapa por defecto.
+  for (const { normal, oficial } of DEPARTAMENTOS_NORMALIZADOS) {
+    if (clave.length > normal.length && clave.endsWith(' ' + normal)) {
+      const resto = clave.slice(0, clave.length - normal.length - 1).trim();
+      if (resto && MUNICIPIOS_OFICIALES[resto]) {
+        return { nombreOficial: MUNICIPIOS_OFICIALES[resto].nombreOficial, departamento: oficial };
+      }
+    }
+  }
+
+  return null;
 }
 
 async function main() {

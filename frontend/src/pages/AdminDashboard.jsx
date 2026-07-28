@@ -42,13 +42,29 @@ export default function AdminDashboard() {
         <p className="text-sm text-ink/50">Vista en tiempo real de la base de datos SFL. Haz clic en una tarjeta o barra para ver el detalle.</p>
       </div>
 
-      {datos.promocion_actual && (
-        <div className="flex items-center gap-4 rounded-2xl border border-gold/30 bg-gold/10 px-6 py-4">
-          <span className="font-display text-4xl font-bold text-gold">{numeroARomano(datos.promocion_actual)}</span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Promoción actual</p>
-            <p className="text-sm text-ink/60">Se está cursando la Promoción {numeroARomano(datos.promocion_actual)} ({datos.promocion_actual}ª)</p>
-          </div>
+      {(datos.promocion_actual || datos.total_graduados_nivel_4 != null) && (
+        <div className="flex flex-wrap gap-4">
+          {datos.promocion_actual && (
+            <div className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-gold/30 bg-gold/10 px-6 py-4">
+              <span className="font-display text-4xl font-bold text-gold">{numeroARomano(datos.promocion_actual)}</span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Promoción actual</p>
+                <p className="text-sm text-ink/60">Se está cursando la Promoción {numeroARomano(datos.promocion_actual)} ({datos.promocion_actual}ª)</p>
+              </div>
+            </div>
+          )}
+          {datos.total_graduados_nivel_4 != null && (
+            <button
+              onClick={() => nav('/admin/reportes?evento=4')}
+              className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-palm/30 bg-palm/10 px-6 py-4 text-left transition hover:border-palm/60 hover:shadow-md"
+            >
+              <span className="font-display text-4xl font-bold text-palm">🎓</span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Total graduados</p>
+                <p className="text-sm text-ink/60"><span className="font-display text-xl font-bold text-palm">{datos.total_graduados_nivel_4}</span> personas han completado el Nivel IV en toda la historia</p>
+              </div>
+            </button>
+          )}
         </div>
       )}
 

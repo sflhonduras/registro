@@ -49,12 +49,32 @@ for (const depto of new Set(Object.values(mapaMunicipioDepartamento))) {
   DEPARTAMENTOS_OFICIALES[normalizarClave(depto)] = depto;
 }
 
+// Lista de departamentos oficiales, más largos primero, para detectar "municipio + departamento
+// pegado" (ej. "Choloma Cortes" o "Santa Rita Copan").
+const DEPARTAMENTOS_NORMALIZADOS = Object.entries(DEPARTAMENTOS_OFICIALES)
+  .map(([normal, oficial]) => ({ normal, oficial }))
+  .sort((a, b) => b.normal.length - a.normal.length);
+
 function corregirMunicipio(valor) {
-  if (!valor) return { nuevo: valor, coincide: true };
+  if (!valor) return { nuevo: valor, coincide: true, departamentoInferido: null };
   const clave = normalizarClave(valor);
-  if (ALIAS_MUNICIPIO[clave]) return { nuevo: ALIAS_MUNICIPIO[clave], coincide: true };
-  if (MUNICIPIOS_OFICIALES[clave]) return { nuevo: MUNICIPIOS_OFICIALES[clave], coincide: true };
-  return { nuevo: valor, coincide: false };
+  if (ALIAS_MUNICIPIO[clave]) return { nuevo: ALIAS_MUNICIPIO[clave], coincide: true, departamentoInferido: null };
+  if (MUNICIPIOS_OFICIALES[clave]) return { nuevo: MUNICIPIOS_OFICIALES[clave], coincide: true, departamentoInferido: null };
+
+  // "Municipio + Departamento pegado": separa el departamento del final y prueba el resto.
+  // Aquí SÍ sabemos con certeza el departamento correcto (la persona lo escribió explícitamente),
+  // así que lo devolvemos para rellenar el campo departamento en el mismo paso — si lo dejáramos
+  // para después, ya se habría perdido esa pista al quedar el municipio "limpio".
+  for (const { normal, oficial } of DEPARTAMENTOS_NORMALIZADOS) {
+    if (clave.length > normal.length && clave.endsWith(' ' + normal)) {
+      const resto = clave.slice(0, clave.length - normal.length - 1).trim();
+      if (resto && MUNICIPIOS_OFICIALES[resto]) {
+        return { nuevo: MUNICIPIOS_OFICIALES[resto], coincide: true, departamentoInferido: oficial };
+      }
+    }
+  }
+
+  return { nuevo: valor, coincide: false, departamentoInferido: null };
 }
 
 function corregirDepartamento(valor) {
@@ -78,8 +98,14 @@ async function main() {
   const sinCoincidenciaMuni = new Set();
 
   for (const fila of rows) {
-    const depto = corregirDepartamento(fila.departamento);
     const muni = corregirMunicipio(fila.municipio);
+    let depto = corregirDepartamento(fila.departamento);
+
+    // Si el departamento está vacío pero al desambiguar el municipio ("Santa Rita Copán")
+    // se determinó con certeza el departamento correcto, lo usamos aquí mismo.
+    if ((!fila.departamento || !fila.departamento.trim()) && muni.departamentoInferido) {
+      depto = { nuevo: muni.departamentoInferido, coincide: true };
+    }
 
     if (!depto.coincide && fila.departamento) sinCoincidenciaDepto.add(fila.departamento);
     if (!muni.coincide && fila.municipio) sinCoincidenciaMuni.add(fila.municipio);
@@ -89,7 +115,7 @@ async function main() {
 
     if (cambioDepto || cambioMuni) {
       cambios++;
-      if (cambioDepto) console.log(`[participantes #${fila.id}] departamento: "${fila.departamento}" -> "${depto.nuevo}"`);
+      if (cambioDepto) console.log(`[participantes #${fila.id}] departamento: "${fila.departamento}" -> "${depto.nuevo}"${muni.departamentoInferido ? '  (deducido del municipio)' : ''}`);
       if (cambioMuni) console.log(`[participantes #${fila.id}] municipio: "${fila.municipio}" -> "${muni.nuevo}"`);
       if (aplicar) {
         await pool.query('UPDATE participantes SET departamento = $1, municipio = $2 WHERE id = $3', [depto.nuevo, muni.nuevo, fila.id]);

@@ -72,8 +72,14 @@ router.get('/participantes/:id', async (req, res) => {
      JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = $1 ORDER BY e.orden`,
     [req.params.id]
   );
+  const historial = await query(
+    `SELECT e.orden, e.nombre, h.ciclo, h.fecha_graduacion, h.promocion_graduacion, h.registrado_en, h.motivo, h.archivado_en
+     FROM inscripciones_historial h JOIN eventos e ON e.id = h.evento_id
+     WHERE h.participante_id = $1 ORDER BY h.archivado_en DESC`,
+    [req.params.id]
+  );
   const promocionRes = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
-  res.json({ ...rows[0], inscripciones: insc.rows, promocion_actual: promocionRes.rows[0]?.valor || null });
+  res.json({ ...rows[0], inscripciones: insc.rows, historial: historial.rows, promocion_actual: promocionRes.rows[0]?.valor || null });
 });
 
 const CAMPOS_PARTICIPANTE = [
@@ -164,6 +170,22 @@ router.post('/participantes/:id/inscripciones/:orden', requireRole('admin'), asy
 // DELETE /api/admin/participantes/:id/inscripciones/:orden - quitar inscripción (admin)
 router.delete('/participantes/:id/inscripciones/:orden', requireRole('admin'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
+  const existente = await query(
+    `SELECT i.* FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+     WHERE i.participante_id = $1 AND e.orden = $2`,
+    [req.params.id, orden]
+  );
+  if (existente.rows[0]) {
+    const a = existente.rows[0];
+    // Se guarda una copia antes de borrar, para no perder la fecha de graduación/promoción
+    // que pudiera tener esa inscripción, aunque el admin la elimine de la vista actual.
+    await query(
+      `INSERT INTO inscripciones_historial
+         (participante_id, evento_id, ciclo, fecha_graduacion, promocion_graduacion, registrado_en, origen, motivo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'eliminado')`,
+      [a.participante_id, a.evento_id, a.ciclo, a.fecha_graduacion, a.promocion_graduacion, a.registrado_en, a.origen]
+    );
+  }
   await query(
     `DELETE FROM inscripciones WHERE participante_id = $1 AND evento_id = (SELECT id FROM eventos WHERE orden = $2)`,
     [req.params.id, orden]
@@ -248,7 +270,7 @@ router.get('/evento-actual-resumen', async (req, res) => {
 });
 
 router.get('/estadisticas', async (req, res) => {
-  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion] = await Promise.all([
+  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4] = await Promise.all([
     query(`
       SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
         COUNT(i.id)::int AS total_inscritos,
@@ -282,7 +304,11 @@ router.get('/estadisticas', async (req, res) => {
       WHERE e.orden = 4 AND i.fecha_graduacion IS NOT NULL
         AND i.promocion_graduacion IS NOT NULL AND i.promocion_graduacion <> ''
       GROUP BY i.promocion_graduacion
-      ORDER BY (CASE WHEN i.promocion_graduacion ~ '^[0-9]+$' THEN i.promocion_graduacion::int ELSE 999999 END)`)
+      ORDER BY (CASE WHEN i.promocion_graduacion ~ '^[0-9]+$' THEN i.promocion_graduacion::int ELSE 999999 END)`),
+    query(`
+      SELECT COUNT(*)::int AS total
+      FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+      WHERE e.orden = 4 AND i.fecha_graduacion IS NOT NULL`)
   ]);
 
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
@@ -309,7 +335,8 @@ router.get('/estadisticas', async (req, res) => {
     inscripciones_por_dia: porDia.rows,
     mapa_departamentos: Object.values(mapaDepartamentos),
     embudo: embudo.rows,
-    graduados_por_promocion: porPromocion.rows
+    graduados_por_promocion: porPromocion.rows,
+    total_graduados_nivel_4: totalGraduadosNivel4.rows[0].total
   });
 });
 
@@ -407,6 +434,14 @@ router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('ad
   const orden = parseInt(req.params.orden, 10);
   const { fecha_graduacion, promocion_graduacion, ciclo } = req.body || {};
 
+  const existente = await query(
+    `SELECT i.* FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+     WHERE i.participante_id = $1 AND e.orden = $2`,
+    [req.params.id, orden]
+  );
+  if (!existente.rows[0]) return res.status(404).json({ error: 'Inscripción no encontrada.' });
+  const anterior = existente.rows[0];
+
   const campos = ['fecha_graduacion = $1', 'promocion_graduacion = $2'];
   const valores = [fecha_graduacion || null, promocion_graduacion || null];
 
@@ -415,6 +450,20 @@ router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('ad
     if (Number.isNaN(cicloNum)) return res.status(400).json({ error: 'El ciclo debe ser un número.' });
     campos.push(`ciclo = $${valores.length + 1}`);
     valores.push(cicloNum);
+  }
+
+  // Se guarda una copia de cómo estaba antes de sobrescribirla a mano, para no perder el dato
+  // anterior si alguien se equivoca al editar. Si antes estaba vacía (ej. el auto-relleno la
+  // completa por primera vez), no hay nada que preservar, así que no se archiva.
+  const habiaAlgoQuePreservar = anterior.fecha_graduacion || anterior.promocion_graduacion;
+  if (habiaAlgoQuePreservar) {
+    await query(
+      `INSERT INTO inscripciones_historial
+         (participante_id, evento_id, ciclo, fecha_graduacion, promocion_graduacion, registrado_en, origen, motivo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'editado')`,
+      [anterior.participante_id, anterior.evento_id, anterior.ciclo, anterior.fecha_graduacion,
+        anterior.promocion_graduacion, anterior.registrado_en, anterior.origen]
+    );
   }
 
   valores.push(req.params.id, orden);

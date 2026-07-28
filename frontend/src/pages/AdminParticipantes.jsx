@@ -105,44 +105,71 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                   <span className="text-ink/50">
                     Registrado: {new Date(insc.registrado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </span>
-                  <span className="ml-auto flex flex-wrap items-center gap-2 text-ink/60">
-                    Ciclo:
-                    <input
-                      type="number"
-                      disabled={soloLectura}
-                      defaultValue={refCiclo.current}
-                      title={`El ciclo en vivo de este nivel va en el #${insc.ciclo_actual}. Si esta persona es de una promoción histórica (Excel), ponle un número que no coincida (ej. 0) para que no se mezcle con el grupo activo.`}
-                      onChange={e => { refCiclo.current = e.target.value; }}
-                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
-                      className="w-16 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
-                    />
-                    <span className={`text-xs ${cicloDesfasado ? 'text-gold' : 'text-ink/30'}`}>
-                      (en vivo: #{insc.ciclo_actual}{cicloDesfasado ? ' · histórico' : ' · activo'})
+                  <span className="ml-auto flex flex-wrap items-center gap-3 text-ink/60">
+                    <span className="flex items-center gap-2 whitespace-nowrap">
+                      Ciclo:
+                      <input
+                        type="number"
+                        disabled={soloLectura}
+                        defaultValue={refCiclo.current}
+                        title={`El ciclo en vivo de este nivel va en el #${insc.ciclo_actual}. Si esta persona es de una promoción histórica (Excel), ponle un número que no coincida (ej. 0) para que no se mezcle con el grupo activo.`}
+                        onChange={e => { refCiclo.current = e.target.value; }}
+                        onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
+                        className="w-16 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
+                      />
+                      <span className={`text-xs ${cicloDesfasado ? 'text-gold' : 'text-ink/30'}`}>
+                        (en vivo: #{insc.ciclo_actual}{cicloDesfasado ? ' · histórico' : ' · activo'})
+                      </span>
                     </span>
-                    Graduación:
-                    <input
-                      type="date"
-                      disabled={soloLectura}
-                      defaultValue={refFecha.current}
-                      onChange={e => { refFecha.current = e.target.value; }}
-                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
-                      className="rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
-                    />
-                    Promoción:
-                    <input
-                      type="text"
-                      disabled={soloLectura}
-                      defaultValue={refPromocion.current}
-                      placeholder="Ej. 5"
-                      onChange={e => { refPromocion.current = e.target.value; }}
-                      onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
-                      className="w-20 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
-                    />
+                    <span className="flex items-center gap-2 whitespace-nowrap">
+                      Graduación:
+                      <input
+                        type="date"
+                        disabled={soloLectura}
+                        defaultValue={refFecha.current}
+                        onChange={e => { refFecha.current = e.target.value; }}
+                        onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
+                        className="rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
+                      />
+                    </span>
+                    <span className="flex items-center gap-2 whitespace-nowrap">
+                      Promoción:
+                      <input
+                        type="text"
+                        disabled={soloLectura}
+                        defaultValue={refPromocion.current}
+                        placeholder="Ej. 5"
+                        onChange={e => { refPromocion.current = e.target.value; }}
+                        onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
+                        className="w-20 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
+                      />
+                    </span>
                     {guardandoGraduacion === insc.orden && <span className="text-xs text-gold">Guardando…</span>}
                   </span>
                 </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {form.historial && form.historial.length > 0 && (
+          <div className="mt-6">
+            <p className="mb-2 text-sm font-medium text-ink/70">
+              📜 Historial archivado <span className="font-normal text-ink/40">(copias guardadas automáticamente antes de reinscripciones o eliminaciones)</span>
+            </p>
+            <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-lg border border-ink/10 bg-ink/5 p-3">
+              {form.historial.map((h, i) => (
+                <p key={i} className="text-xs text-ink/60">
+                  <span className="font-semibold text-ink/70">Nivel {h.orden}</span> · ciclo {h.ciclo ?? '—'} ·
+                  {' '}graduación {h.fecha_graduacion ? h.fecha_graduacion.slice(0, 10) : '—'} ·
+                  {' '}promoción {h.promocion_graduacion || '—'} ·
+                  {' '}<span className="italic">
+                    {h.motivo === 'reactivado' ? 'reemplazado al reinscribirse' : h.motivo === 'eliminado' ? 'eliminado por un admin' : 'editado a mano'}
+                  </span>
+                  {' '}el {new Date(h.archivado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+              ))}
             </div>
           </div>
         )}

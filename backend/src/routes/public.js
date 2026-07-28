@@ -26,6 +26,17 @@ async function inscribirEnCicloActual(participanteId, evento, origen = 'web') {
     if (existente.rows[0].ciclo === evento.ciclo_actual) {
       return { yaRegistrado: true };
     }
+    // Antes de sobrescribir, guardamos una copia de cómo estaba (ciclo, fecha de graduación,
+    // promoción) en el historial — así nunca se pierde para siempre, aunque se reinscriba.
+    const anteriorRes = await query('SELECT * FROM inscripciones WHERE id = $1', [existente.rows[0].id]);
+    const anterior = anteriorRes.rows[0];
+    await query(
+      `INSERT INTO inscripciones_historial
+         (participante_id, evento_id, ciclo, fecha_graduacion, promocion_graduacion, registrado_en, origen, motivo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'reactivado')`,
+      [anterior.participante_id, anterior.evento_id, anterior.ciclo, anterior.fecha_graduacion,
+        anterior.promocion_graduacion, anterior.registrado_en, anterior.origen]
+    );
     await query(
       'UPDATE inscripciones SET ciclo = $1, registrado_en = now(), origen = $2 WHERE id = $3',
       [evento.ciclo_actual, origen, existente.rows[0].id]
