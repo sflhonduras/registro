@@ -69,6 +69,19 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
           ))}
         </div>
 
+        <label className={`mt-4 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-sm font-medium ${
+          form.fallecido ? 'border-ink/20 bg-ink/5 text-ink/70' : 'border-ink/10 text-ink/50'
+        }`}>
+          <input
+            type="checkbox"
+            disabled={soloLectura}
+            checked={!!form.fallecido}
+            onChange={e => setForm(f => ({ ...f, fallecido: e.target.checked }))}
+            className="h-4 w-4 accent-ink/60"
+          />
+          ✝ Q.E.P.D. — marcar si este participante falleció
+        </label>
+
         <div className="mt-5">
           <p className="mb-2 text-sm font-medium text-ink/70">Niveles inscritos</p>
           <div className="flex flex-wrap gap-2">
@@ -103,7 +116,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                 <div key={insc.orden} className="flex flex-wrap items-center gap-3 rounded-lg border border-ink/10 px-3 py-2 text-sm">
                   <span className="w-20 shrink-0 font-semibold text-ink">Nivel {insc.orden}</span>
                   <span className="text-ink/50">
-                    Registrado: {new Date(insc.registrado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    Registrado: {new Date(insc.registrado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}
                   </span>
                   <span className="ml-auto flex flex-wrap items-center gap-3 text-ink/60">
                     <span className="flex items-center gap-2 whitespace-nowrap">
@@ -167,7 +180,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                   {' '}<span className="italic">
                     {h.motivo === 'reactivado' ? 'reemplazado al reinscribirse' : h.motivo === 'eliminado' ? 'eliminado por un admin' : 'editado a mano'}
                   </span>
-                  {' '}el {new Date(h.archivado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {' '}el {new Date(h.archivado_en).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}
                 </p>
               ))}
             </div>
@@ -337,12 +350,17 @@ export default function AdminParticipantes() {
   const abrirDetalle = async (p) => {
     const { data } = await api.get(`/admin/participantes/${p.id}`);
 
-    // Si a algún nivel le falta fecha de graduación o promoción, se completan
-    // automáticamente: fecha = última fecha del evento de ese nivel; promoción = la actual.
+    // Si al nivel EN VIVO (el ciclo activo de ese evento) le falta fecha de graduación o
+    // promoción, se completan automáticamente: fecha = última fecha del evento; promoción =
+    // la actual. IMPORTANTE: nunca se aplica a niveles históricos (ciclo distinto al ciclo_actual
+    // de ese evento) — un nivel histórico vacío se deja vacío, no se rellena con datos del
+    // ciclo en vivo. Este chequeo es justamente lo que faltaba antes y causaba que se
+    // "ensuciaran" datos históricos ya corregidos cada vez que alguien abría el detalle.
     const inscripcionesCompletadas = await Promise.all(data.inscripciones.map(async (insc) => {
-      const faltaFecha = !insc.fecha_graduacion;
-      const faltaPromocion = !insc.promocion_graduacion;
-      if (!soloLectura && (faltaFecha || faltaPromocion)) {
+      const esCicloEnVivo = insc.ciclo === insc.ciclo_actual;
+      const faltaFecha = esCicloEnVivo && !insc.fecha_graduacion;
+      const faltaPromocion = esCicloEnVivo && !insc.promocion_graduacion;
+      if (!soloLectura && esCicloEnVivo && (faltaFecha || faltaPromocion)) {
         const fechaSugerida = insc.fecha_evento_fin || insc.fecha_evento;
         const nuevaFecha = faltaFecha && fechaSugerida ? fechaSugerida.slice(0, 10) : insc.fecha_graduacion;
         const nuevaPromocion = faltaPromocion && data.promocion_actual ? data.promocion_actual : insc.promocion_graduacion;
@@ -441,7 +459,12 @@ export default function AdminParticipantes() {
             {cargando && <tr><td colSpan={eventoParaColumna ? 6 : 5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
             {!cargando && resultado.datos.map(p => (
               <tr key={p.id} className="border-t border-ink/5 hover:bg-parchment-2/50">
-                <td className="px-4 py-3 font-medium text-ink">{p.nombre_completo}</td>
+                <td className="px-4 py-3 font-medium text-ink">
+                  {p.nombre_completo}
+                  {p.fallecido && (
+                    <span title="Q.E.P.D." className="ml-2 text-ink/40">✝</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-ink/60">{p.dni}</td>
                 <td className="px-4 py-3 text-ink/60">{p.capitulo || '—'}</td>
                 <td className="px-4 py-3">

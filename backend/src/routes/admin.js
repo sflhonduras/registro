@@ -86,7 +86,7 @@ const CAMPOS_PARTICIPANTE = [
   'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
   'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio', 'tiempo_comparte_testimonio',
   'ha_recibido_sael', 'cantidad_saeles', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono',
-  'pin', 'observacion'
+  'pin', 'observacion', 'fallecido'
 ];
 
 // POST /api/admin/participantes  (crear manualmente) - solo admin

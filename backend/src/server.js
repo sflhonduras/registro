@@ -12,6 +12,10 @@ import reportesRoutes from './routes/reportes.js';
 import servidoresRoutes from './routes/servidores.js';
 import cocinaRoutes from './routes/cocina.js';
 import mantenimientoRoutes from './routes/mantenimiento.js';
+import inventarioRoutes from './routes/inventario.js';
+import transporteRoutes from './routes/transporte.js';
+import auditoriaRoutes from './routes/auditoriaRoutes.js';
+import { auditoriaMiddleware } from './auditoria.js';
 
 // Red de seguridad: si algo se escapa igual, se registra pero NO se cae el servidor.
 process.on('unhandledRejection', (err) => console.error('unhandledRejection:', err));
@@ -30,6 +34,7 @@ app.use(cors({
   origin: origenesPermitidos.includes('*') ? '*' : origenesPermitidos
 }));
 app.use(express.json());
+app.use(auditoriaMiddleware);
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
 app.use('/api/registro', limiter);
@@ -44,6 +49,9 @@ app.use('/api/admin/reportes', reportesRoutes);
 app.use('/api/admin/servidores', servidoresRoutes);
 app.use('/api/cocina', cocinaRoutes);
 app.use('/api/admin/mantenimiento', mantenimientoRoutes);
+app.use('/api/admin/inventario', inventarioRoutes);
+app.use('/api/admin/transporte', transporteRoutes);
+app.use('/api/admin/auditoria', auditoriaRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

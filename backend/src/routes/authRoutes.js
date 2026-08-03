@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 import { signToken, requireAuth } from '../auth.js';
+import { registrarLogin } from '../auditoria.js';
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.post('/login', async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Credenciales inválidas.' });
 
   const token = signToken(user);
+  await registrarLogin(user.id);
   res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
 });
 

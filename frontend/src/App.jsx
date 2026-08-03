@@ -13,6 +13,9 @@ import AdminDiplomas from './pages/AdminDiplomas';
 import AdminReportes from './pages/AdminReportes';
 import AdminServidores from './pages/AdminServidores';
 import AdminEventos from './pages/AdminEventos';
+import AdminInventario from './pages/AdminInventario';
+import AdminTransporte from './pages/AdminTransporte';
+import AdminAuditoria from './pages/AdminAuditoria';
 import AdminUsuarios from './pages/AdminUsuarios';
 import AdminMantenimiento from './pages/AdminMantenimiento';
 import CocinaDashboard from './pages/CocinaDashboard';
@@ -45,7 +48,10 @@ export default function App() {
             <Route path="reportes" element={<AdminReportes />} />
             <Route path="servidores" element={<AdminServidores />} />
             <Route path="eventos" element={<AdminEventos />} />
+            <Route path="inventario" element={<AdminInventario />} />
+            <Route path="transporte" element={<AdminTransporte />} />
             <Route path="usuarios" element={<ProtectedRoute rolRequerido="admin"><AdminUsuarios /></ProtectedRoute>} />
+            <Route path="auditoria" element={<ProtectedRoute rolRequerido="admin"><AdminAuditoria /></ProtectedRoute>} />
             <Route path="mantenimiento" element={<ProtectedRoute rolRequerido="admin"><AdminMantenimiento /></ProtectedRoute>} />
           </Route>
         </Route>

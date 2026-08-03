@@ -49,8 +49,8 @@ async function main() {
       await pool.query(
         `INSERT INTO inscripciones_historial
            (participante_id, evento_id, ciclo, fecha_graduacion, promocion_graduacion, registrado_en, origen, motivo)
-         VALUES ($1, $2, $3, $4, $5, $4, 'import_historico', 'importado_historico')`,
-        [participante.id, nivelIVId, v.ciclo, v.fecha, v.promocion]
+         VALUES ($1, $2, $3, $4, $5, $6, 'import_historico', 'importado_historico')`,
+        [participante.id, nivelIVId, v.ciclo, v.fecha, v.promocion, `${v.fecha} 00:00:00`]
       );
     }
   }

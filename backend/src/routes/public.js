@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
+import { MUNICIPIOS_POR_DEPARTAMENTO } from '../municipios.js';
 
 const router = Router();
 
@@ -69,6 +70,13 @@ function validarDatosEvento1(b) {
     if (b[campo] === undefined || b[campo] === null || String(b[campo]).trim() === '') {
       return `El campo "${campo}" es obligatorio.`;
     }
+  }
+  const dni = soloDigitos(b.dni);
+  if (!dni || dni.length !== 13) return 'El número de identidad (DNI) debe tener 13 dígitos.';
+  const municipiosDelDepartamento = MUNICIPIOS_POR_DEPARTAMENTO[b.departamento];
+  if (!municipiosDelDepartamento) return 'El departamento indicado no es válido.';
+  if (!municipiosDelDepartamento.includes(b.municipio)) {
+    return `El municipio "${b.municipio}" no pertenece al departamento "${b.departamento}".`;
   }
   if (b.comparte_testimonio === 'Si' && !String(b.tiempo_comparte_testimonio || '').trim()) {
     return 'Indica hace cuánto tiempo comparte testimonio.';

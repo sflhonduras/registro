@@ -177,7 +177,10 @@ function formatearFecha(fecha) {
   if (!fecha) return null;
   const d = new Date(fecha);
   if (isNaN(d)) return fecha;
-  return d.toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' });
+  // timeZone: 'UTC' evita que la fecha se recorra un día si el servidor alguna vez corre en
+  // otra zona horaria distinta a UTC (mismo tipo de bug que se corrigió en el frontend, ver
+  // AdminParticipantes.jsx).
+  return d.toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
 // GET /api/admin/servidores/:id/ficha -> PDF de una sola persona, en 1 página horizontal,
