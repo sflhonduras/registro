@@ -13,9 +13,24 @@ router.use((req, res, next) => {
 
 const CIUDADES = ['Tegucigalpa', 'San Pedro Sula', 'La Ceiba', 'Comayagua', 'Yamaranguila', 'La Esperanza'];
 
-// Formatea una fecha (columna DATE, llega como Date en medianoche UTC) como DD/MM/AAAA,
-// usando los componentes UTC para no recorrerse un día por zona horaria — mismo cuidado que
-// ya aplicamos en AdminParticipantes.jsx.
+const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+// Formatea una fecha (columna DATE, llega como Date en medianoche UTC) como
+// "Viernes 14 de Agosto del 2026", usando los componentes UTC para no recorrerse un día
+// por zona horaria — mismo cuidado que ya aplicamos en AdminParticipantes.jsx.
+function formatearFechaLarga(fecha) {
+  if (!fecha) return '';
+  const d = new Date(fecha);
+  if (isNaN(d)) return String(fecha);
+  const diaSemana = DIAS_SEMANA[d.getUTCDay()];
+  const dia = d.getUTCDate();
+  const mes = MESES[d.getUTCMonth()];
+  const anio = d.getUTCFullYear();
+  return `${diaSemana} ${dia} de ${mes} del ${anio}`;
+}
+
+// Formato corto DD/MM/AAAA, mejor para ordenar/filtrar en una hoja de Excel.
 function formatearFechaDDMMYYYY(fecha) {
   if (!fecha) return '';
   const d = new Date(fecha);
@@ -98,9 +113,10 @@ router.get('/transportes', async (req, res) => {
   if (!evento) return res.json({ evento: null, transportes: [] });
 
   const { rows: transportes } = await query(
-    `SELECT t.id, t.ciudad, t.fecha_salida, t.hora_salida, t.conductor_id,
+    `SELECT t.id, t.ciudad, t.fecha_salida, t.hora_salida, t.conductor_id, t.capacidad_personalizada,
             s.nombre_completo AS conductor_nombre,
-            tv.id AS tipo_vehiculo_id, tv.nombre AS tipo_vehiculo_nombre, tv.capacidad
+            tv.id AS tipo_vehiculo_id, tv.nombre AS tipo_vehiculo_nombre,
+            COALESCE(t.capacidad_personalizada, tv.capacidad) AS capacidad
      FROM transportes t
      LEFT JOIN servidores s ON s.id = t.conductor_id
      JOIN tipos_vehiculo tv ON tv.id = t.tipo_vehiculo_id
@@ -144,12 +160,14 @@ router.post('/transportes', requireRole('admin'), async (req, res) => {
 
 // PUT /api/admin/transporte/transportes/:id
 router.put('/transportes/:id', requireRole('admin'), async (req, res) => {
-  const { conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida } = req.body || {};
+  const { conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida, capacidad_personalizada } = req.body || {};
   if (ciudad && !CIUDADES.includes(ciudad)) return res.status(400).json({ error: 'Ciudad no válida.' });
   const { rowCount } = await query(
     `UPDATE transportes SET conductor_id = $1, tipo_vehiculo_id = $2, ciudad = $3,
-       fecha_salida = $4, hora_salida = $5 WHERE id = $6`,
-    [conductor_id || null, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida || null, req.params.id]
+       fecha_salida = $4, hora_salida = $5, capacidad_personalizada = $6 WHERE id = $7`,
+    [conductor_id || null, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida || null,
+     capacidad_personalizada === '' || capacidad_personalizada == null ? null : parseInt(capacidad_personalizada, 10),
+     req.params.id]
   );
   if (!rowCount) return res.status(404).json({ error: 'Transporte no encontrado.' });
   res.json({ mensaje: 'Actualizado.' });
@@ -170,7 +188,8 @@ router.post('/transportes/:id/pasajeros', requireRole('admin'), async (req, res)
   if (!servidor_id) return res.status(400).json({ error: 'servidor_id es obligatorio.' });
 
   const capacidadRes = await query(
-    `SELECT tv.capacidad, (SELECT COUNT(*)::int FROM transporte_pasajeros WHERE transporte_id = t.id) AS ocupados
+    `SELECT COALESCE(t.capacidad_personalizada, tv.capacidad) AS capacidad,
+            (SELECT COUNT(*)::int FROM transporte_pasajeros WHERE transporte_id = t.id) AS ocupados
      FROM transportes t JOIN tipos_vehiculo tv ON tv.id = t.tipo_vehiculo_id WHERE t.id = $1`,
     [req.params.id]
   );
@@ -211,7 +230,7 @@ async function recolectarTransportes() {
   if (!evento) return { evento: null, transportes: [] };
   const { rows: transportes } = await query(
     `SELECT t.id, t.ciudad, t.fecha_salida, t.hora_salida, s.nombre_completo AS conductor_nombre,
-            tv.nombre AS tipo_vehiculo_nombre, tv.capacidad
+            tv.nombre AS tipo_vehiculo_nombre, COALESCE(t.capacidad_personalizada, tv.capacidad) AS capacidad
      FROM transportes t
      LEFT JOIN servidores s ON s.id = t.conductor_id
      JOIN tipos_vehiculo tv ON tv.id = t.tipo_vehiculo_id
@@ -274,7 +293,7 @@ router.get('/pdf', async (req, res) => {
     if (doc.y > doc.page.height - 140) { doc.addPage(); doc.y = 40; }
     doc.rect(MARGEN, doc.y, ANCHO - MARGEN * 2, 24).fill(BANNER_BG);
     doc.fillColor(INK).font('Helvetica-Bold').fontSize(11)
-      .text(`${t.tipo_vehiculo_nombre} · ${t.ciudad} · ${formatearFechaDDMMYYYY(t.fecha_salida)}${t.hora_salida ? ' · ' + formatearHora12(t.hora_salida) : ''}`, MARGEN + 8, doc.y + 7);
+      .text(`${t.tipo_vehiculo_nombre} · ${t.ciudad} · ${formatearFechaLarga(t.fecha_salida)}${t.hora_salida ? ' · ' + formatearHora12(t.hora_salida) : ''}`, MARGEN + 8, doc.y + 7);
     doc.moveDown(1.6);
 
     doc.fillColor(INK_SOFT).font('Helvetica').fontSize(9).text(`Conductor: `, MARGEN + 8, doc.y, { continued: true });

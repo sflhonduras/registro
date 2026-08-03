@@ -29,6 +29,16 @@ export function formatearFechaCorta(fechaISO) {
   return `${dia}/${mes}/${d.getFullYear()}`;
 }
 
+const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+// Formato largo con día de la semana: "Viernes 14 de Agosto del 2026".
+export function formatearFechaLarga(fechaISO) {
+  const d = parsearFechaLocal(fechaISO);
+  if (!d) return '';
+  const diaSemana = DIAS_SEMANA[d.getDay()];
+  return `${diaSemana} ${d.getDate()} de ${MESES[d.getMonth()][0].toUpperCase()}${MESES[d.getMonth()].slice(1)} del ${d.getFullYear()}`;
+}
+
 // Muestra "10 al 12 de julio de 2026" si hay fecha fin, o solo la fecha si no.
 export function formatearRangoFechas(fechaInicioISO, fechaFinISO) {
   const inicio = parsearFechaLocal(fechaInicioISO);
