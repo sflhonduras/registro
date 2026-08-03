@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import api, { mensajeError } from '../api';
+import { formatearFechaCorta, formatearHora12 } from '../fechas';
 
 function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuardar, onEliminar, onAgregarPasajero, onQuitarPasajero }) {
   const [editando, setEditando] = useState(false);
@@ -28,7 +29,7 @@ function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuar
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <p className="font-semibold text-ink">{t.tipo_vehiculo_nombre} · {t.ciudad}</p>
-            <p className="text-xs text-ink/50">{t.fecha_salida?.slice(0, 10)}{t.hora_salida ? ` · ${t.hora_salida.slice(0, 5)}` : ''}</p>
+            <p className="text-xs text-ink/50">{formatearFechaCorta(t.fecha_salida)}{t.hora_salida ? ` · ${formatearHora12(t.hora_salida)}` : ''}</p>
             <p className="mt-1 text-sm text-ink/70">Conductor: <strong>{t.conductor_nombre || 'Sin asignar'}</strong></p>
           </div>
           <div className="flex items-center gap-3">

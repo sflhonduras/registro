@@ -13,6 +13,32 @@ router.use((req, res, next) => {
 
 const CIUDADES = ['Tegucigalpa', 'San Pedro Sula', 'La Ceiba', 'Comayagua', 'Yamaranguila', 'La Esperanza'];
 
+// Formatea una fecha (columna DATE, llega como Date en medianoche UTC) como DD/MM/AAAA,
+// usando los componentes UTC para no recorrerse un día por zona horaria — mismo cuidado que
+// ya aplicamos en AdminParticipantes.jsx.
+function formatearFechaDDMMYYYY(fecha) {
+  if (!fecha) return '';
+  const d = new Date(fecha);
+  if (isNaN(d)) return String(fecha);
+  const dia = String(d.getUTCDate()).padStart(2, '0');
+  const mes = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const anio = d.getUTCFullYear();
+  return `${dia}/${mes}/${anio}`;
+}
+
+// Convierte una hora en formato 24h ("13:00:00", como la guarda Postgres) a 12h con AM/PM.
+function formatearHora12(horaTexto) {
+  if (!horaTexto) return '';
+  const [hStr, mStr] = String(horaTexto).split(':');
+  let horas = parseInt(hStr, 10);
+  if (Number.isNaN(horas)) return horaTexto;
+  const minutos = (mStr || '00').padStart(2, '0');
+  const sufijo = horas >= 12 ? 'PM' : 'AM';
+  horas = horas % 12;
+  if (horas === 0) horas = 12;
+  return `${horas}:${minutos} ${sufijo}`;
+}
+
 /* ------------------------------ TIPOS DE VEHÍCULO ------------------------------ */
 
 router.get('/tipos-vehiculo', async (req, res) => {
@@ -210,8 +236,8 @@ router.get('/excel', async (req, res) => {
     'Conductor': t.conductor_nombre || 'Sin asignar',
     'Vehículo': t.tipo_vehiculo_nombre,
     'Ciudad': t.ciudad,
-    'Fecha salida': t.fecha_salida,
-    'Hora salida': t.hora_salida || '',
+    'Fecha salida': formatearFechaDDMMYYYY(t.fecha_salida),
+    'Hora salida': formatearHora12(t.hora_salida),
     'Pasajeros': t.pasajeros.join(', '),
     'Cupos': `${t.pasajeros.length}/${t.capacidad}`
   }));
@@ -248,7 +274,7 @@ router.get('/pdf', async (req, res) => {
     if (doc.y > doc.page.height - 140) { doc.addPage(); doc.y = 40; }
     doc.rect(MARGEN, doc.y, ANCHO - MARGEN * 2, 24).fill(BANNER_BG);
     doc.fillColor(INK).font('Helvetica-Bold').fontSize(11)
-      .text(`${t.tipo_vehiculo_nombre} · ${t.ciudad} · ${t.fecha_salida}${t.hora_salida ? ' ' + t.hora_salida : ''}`, MARGEN + 8, doc.y + 7);
+      .text(`${t.tipo_vehiculo_nombre} · ${t.ciudad} · ${formatearFechaDDMMYYYY(t.fecha_salida)}${t.hora_salida ? ' · ' + formatearHora12(t.hora_salida) : ''}`, MARGEN + 8, doc.y + 7);
     doc.moveDown(1.6);
 
     doc.fillColor(INK_SOFT).font('Helvetica').fontSize(9).text(`Conductor: `, MARGEN + 8, doc.y, { continued: true });

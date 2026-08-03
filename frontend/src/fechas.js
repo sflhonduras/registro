@@ -19,6 +19,16 @@ export function formatearFecha(fechaISO) {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
+// Formato corto DD/MM/AAAA (ej. "03/08/2026"), útil en tablas y tarjetas donde no cabe la
+// fecha larga. Reutiliza parsearFechaLocal para no recorrerse un día por zona horaria.
+export function formatearFechaCorta(fechaISO) {
+  const d = parsearFechaLocal(fechaISO);
+  if (!d) return '';
+  const dia = String(d.getDate()).padStart(2, '0');
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dia}/${mes}/${d.getFullYear()}`;
+}
+
 // Muestra "10 al 12 de julio de 2026" si hay fecha fin, o solo la fecha si no.
 export function formatearRangoFechas(fechaInicioISO, fechaFinISO) {
   const inicio = parsearFechaLocal(fechaInicioISO);
