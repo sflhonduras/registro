@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { utils, write } from 'xlsx';
 import { query } from '../db.js';
-import { requireAuth, requireRole } from '../auth.js';
+import { requireAuth, requireSuperAdmin } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole('admin')); // solo admin puede ver/descargar respaldos
+router.use(requireSuperAdmin); // solo super_admin puede ver/descargar respaldos
 
 async function obtenerTablas() {
   const [eventos, participantes, inscripciones, servidores, configuracion, usuariosAdmin] = await Promise.all([

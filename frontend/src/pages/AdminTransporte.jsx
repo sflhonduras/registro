@@ -117,7 +117,7 @@ function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuar
 
 export default function AdminTransporte() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin';
+  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
 
   const [evento, setEvento] = useState(null);
   const [transportes, setTransportes] = useState([]);

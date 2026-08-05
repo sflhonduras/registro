@@ -200,7 +200,7 @@ function TarjetaConferencia({ conferencia, servidores, soloLectura, onGuardarRes
 
 export default function AdminInventario() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin';
+  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
 
   const [categorias, setCategorias] = useState([]);
   const [talleres, setTalleres] = useState({ evento: null, conferencias: [] });

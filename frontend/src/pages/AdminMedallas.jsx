@@ -6,7 +6,7 @@ const EMOJI = { Bronce: '🥉', Plata: '🥈', Oro: '🥇', Platino: '🏆', 'Vu
 
 export default function AdminMedallas() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin';
+  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
 
   const [medallas, setMedallas] = useState([]);
   const [cargando, setCargando] = useState(true);

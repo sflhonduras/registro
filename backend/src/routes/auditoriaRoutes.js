@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { query } from '../db.js';
-import { requireAuth, requireRole } from '../auth.js';
+import { requireAuth, requireSuperAdmin } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole('admin')); // solo admin puede ver la auditoría
+router.use(requireSuperAdmin); // solo super_admin puede ver la auditoría
 
 // GET /api/admin/auditoria?usuario=&desde=&hasta=&pagina=&limite=
 router.get('/', async (req, res) => {

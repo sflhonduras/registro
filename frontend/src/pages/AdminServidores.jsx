@@ -171,7 +171,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
 
 export default function AdminServidores() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin';
+  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
 
   const [servidores, setServidores] = useState([]);
   const [cargando, setCargando] = useState(true);

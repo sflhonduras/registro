@@ -298,7 +298,7 @@ function PanelExportarContacto() {
 
 export default function AdminParticipantes() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin';
+  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
 
   const [pestana, setPestana] = useState('actual'); // 'actual' | 'todos'
   const [eventoActual, setEventoActual] = useState(null);

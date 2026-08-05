@@ -16,7 +16,7 @@ function horaParaInput(v) {
 
 export default function AdminEventos() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin';
+  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
   const [eventos, setEventos] = useState([]);
   const [guardandoId, setGuardandoId] = useState(null);
   const [mensajes, setMensajes] = useState({});
