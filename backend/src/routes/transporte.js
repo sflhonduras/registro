@@ -2,7 +2,7 @@ import { Router } from 'express';
 import PDFDocument from 'pdfkit';
 import xlsx from 'xlsx';
 import { query } from '../db.js';
-import { requireAuth, requireRole } from '../auth.js';
+import { requireAuth, requireModulo } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -10,6 +10,7 @@ router.use((req, res, next) => {
   if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
 });
+router.use(requireModulo('transporte', 'consulta'));
 
 const CIUDADES = ['Tegucigalpa', 'San Pedro Sula', 'La Ceiba', 'Comayagua', 'Yamaranguila', 'La Esperanza'];
 
@@ -61,7 +62,7 @@ router.get('/tipos-vehiculo', async (req, res) => {
   res.json({ ciudades: CIUDADES, tipos: rows });
 });
 
-router.post('/tipos-vehiculo', requireRole('admin'), async (req, res) => {
+router.post('/tipos-vehiculo', requireModulo('transporte', 'edicion'), async (req, res) => {
   const { nombre, capacidad } = req.body || {};
   if (!nombre || !capacidad) return res.status(400).json({ error: 'Nombre y capacidad son obligatorios.' });
   const { rows } = await query(
@@ -71,7 +72,7 @@ router.post('/tipos-vehiculo', requireRole('admin'), async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-router.delete('/tipos-vehiculo/:id', requireRole('admin'), async (req, res) => {
+router.delete('/tipos-vehiculo/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
   const { rowCount } = await query('DELETE FROM tipos_vehiculo WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Tipo de vehículo no encontrado.' });
   res.json({ mensaje: 'Eliminado.' });
@@ -140,7 +141,7 @@ router.get('/transportes', async (req, res) => {
 });
 
 // POST /api/admin/transporte/transportes
-router.post('/transportes', requireRole('admin'), async (req, res) => {
+router.post('/transportes', requireModulo('transporte', 'edicion'), async (req, res) => {
   const { conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida } = req.body || {};
   const eventoRes = await query('SELECT id FROM eventos WHERE es_actual = TRUE LIMIT 1');
   const evento = eventoRes.rows[0];
@@ -159,7 +160,7 @@ router.post('/transportes', requireRole('admin'), async (req, res) => {
 });
 
 // PUT /api/admin/transporte/transportes/:id
-router.put('/transportes/:id', requireRole('admin'), async (req, res) => {
+router.put('/transportes/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
   const { conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida, capacidad_personalizada } = req.body || {};
   if (ciudad && !CIUDADES.includes(ciudad)) return res.status(400).json({ error: 'Ciudad no válida.' });
   const { rowCount } = await query(
@@ -174,7 +175,7 @@ router.put('/transportes/:id', requireRole('admin'), async (req, res) => {
 });
 
 // DELETE /api/admin/transporte/transportes/:id
-router.delete('/transportes/:id', requireRole('admin'), async (req, res) => {
+router.delete('/transportes/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
   const { rowCount } = await query('DELETE FROM transportes WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Transporte no encontrado.' });
   res.json({ mensaje: 'Eliminado.' });
@@ -183,7 +184,7 @@ router.delete('/transportes/:id', requireRole('admin'), async (req, res) => {
 // POST /api/admin/transporte/transportes/:id/pasajeros  body: { servidor_id }
 // No bloquea si el servidor ya está en otro transporte a la misma fecha/hora — solo se
 // pintará la alerta la próxima vez que se pida la lista (GET /transportes).
-router.post('/transportes/:id/pasajeros', requireRole('admin'), async (req, res) => {
+router.post('/transportes/:id/pasajeros', requireModulo('transporte', 'edicion'), async (req, res) => {
   const { servidor_id } = req.body || {};
   if (!servidor_id) return res.status(400).json({ error: 'servidor_id es obligatorio.' });
 
@@ -207,7 +208,7 @@ router.post('/transportes/:id/pasajeros', requireRole('admin'), async (req, res)
 });
 
 // DELETE /api/admin/transporte/transportes/:id/pasajeros/:servidorId
-router.delete('/transportes/:id/pasajeros/:servidorId', requireRole('admin'), async (req, res) => {
+router.delete('/transportes/:id/pasajeros/:servidorId', requireModulo('transporte', 'edicion'), async (req, res) => {
   await query(
     'DELETE FROM transporte_pasajeros WHERE transporte_id = $1 AND servidor_id = $2',
     [req.params.id, req.params.servidorId]

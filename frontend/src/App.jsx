@@ -11,6 +11,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminParticipantes from './pages/AdminParticipantes';
 import AdminDiplomas from './pages/AdminDiplomas';
 import AdminReportes from './pages/AdminReportes';
+import AdminMedallas from './pages/AdminMedallas';
 import AdminServidores from './pages/AdminServidores';
 import AdminEventos from './pages/AdminEventos';
 import AdminInventario from './pages/AdminInventario';
@@ -46,13 +47,14 @@ export default function App() {
             <Route path="participantes" element={<AdminParticipantes />} />
             <Route path="diplomas" element={<AdminDiplomas />} />
             <Route path="reportes" element={<AdminReportes />} />
+            <Route path="medallas" element={<AdminMedallas />} />
             <Route path="servidores" element={<AdminServidores />} />
             <Route path="eventos" element={<AdminEventos />} />
             <Route path="inventario" element={<AdminInventario />} />
             <Route path="transporte" element={<AdminTransporte />} />
-            <Route path="usuarios" element={<ProtectedRoute rolRequerido="admin"><AdminUsuarios /></ProtectedRoute>} />
-            <Route path="auditoria" element={<ProtectedRoute rolRequerido="admin"><AdminAuditoria /></ProtectedRoute>} />
-            <Route path="mantenimiento" element={<ProtectedRoute rolRequerido="admin"><AdminMantenimiento /></ProtectedRoute>} />
+            <Route path="usuarios" element={<ProtectedRoute rolRequerido="super_admin"><AdminUsuarios /></ProtectedRoute>} />
+            <Route path="auditoria" element={<ProtectedRoute rolRequerido="super_admin"><AdminAuditoria /></ProtectedRoute>} />
+            <Route path="mantenimiento" element={<ProtectedRoute rolRequerido="super_admin"><AdminMantenimiento /></ProtectedRoute>} />
           </Route>
         </Route>
       </Routes>

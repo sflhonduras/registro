@@ -379,13 +379,79 @@ export default function AdminParticipantes() {
     setSeleccionado({ ...data, inscripciones: inscripcionesCompletadas, eventos_inscritos: data.inscripciones.map(i => i.orden) });
   };
 
+// Separa el nombre completo en dos líneas para la etiqueta: nombres / apellidos.
+// Usa la convención hondureña habitual de DOS apellidos — las últimas 2 palabras se toman
+// como apellidos, todo lo anterior como nombres. No es perfecto (alguien con un solo
+// apellido puede salir mal), pero es el mejor punto de partida sin rediseñar la base de datos.
+function separarNombreApellido(nombreCompleto) {
+  const palabras = String(nombreCompleto || '').trim().split(/\s+/).filter(Boolean);
+  if (palabras.length <= 2) {
+    return { nombres: palabras[0] || '', apellidos: palabras[1] || '' };
+  }
+  return { nombres: palabras.slice(0, -2).join(' '), apellidos: palabras.slice(-2).join(' ') };
+}
+
+function escaparHtml(texto) {
+  return String(texto).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Manda a imprimir una etiqueta de 7cm x 3.5cm (apaisada) con el nombre en dos líneas,
+// usando un iframe invisible para no navegar fuera de la pantalla actual.
+function imprimirEtiqueta(nombreCompleto) {
+  const { nombres, apellidos } = separarNombreApellido(nombreCompleto);
+  let iframe = document.getElementById('etiqueta-impresion-iframe');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = 'etiqueta-impresion-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+  }
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <html><head><style>
+      @page { size: 7cm 3.5cm; margin: 0; }
+      body { margin: 0; width: 7cm; height: 3.5cm; display: flex; flex-direction: column;
+             align-items: center; justify-content: center; font-family: Arial, sans-serif; }
+      .linea1 { font-size: 15pt; font-weight: bold; text-align: center; }
+      .linea2 { font-size: 13pt; text-align: center; margin-top: 2pt; }
+    </style></head>
+    <body>
+      <div class="linea1">${escaparHtml(nombres)}</div>
+      <div class="linea2">${escaparHtml(apellidos)}</div>
+    </body></html>
+  `);
+  doc.close();
+  iframe.onload = () => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+  };
+}
+
   const eventoParaColumna = pestana === 'actual' ? eventoActual?.orden : (filtroEvento || null);
+
+  const [imprimirEtiquetaActivo, setImprimirEtiquetaActivo] = useState(
+    () => localStorage.getItem('sfl_imprimir_etiquetas') === '1'
+  );
+  const cambiarImprimirEtiqueta = (activo) => {
+    setImprimirEtiquetaActivo(activo);
+    localStorage.setItem('sfl_imprimir_etiquetas', activo ? '1' : '0');
+  };
 
   const toggleRegistradoPresencial = async (p) => {
     if (soloLectura || !eventoParaColumna) return;
+    const nuevoValor = !p.registrado_presencial;
     await api.put(`/admin/participantes/${p.id}/inscripciones/${eventoParaColumna}/presencial`, {
-      registrado_presencial: !p.registrado_presencial
+      registrado_presencial: nuevoValor
     });
+    if (nuevoValor && imprimirEtiquetaActivo) {
+      imprimirEtiqueta(p.nombre_completo);
+    }
     cargar();
   };
 
@@ -413,9 +479,20 @@ export default function AdminParticipantes() {
         </button>
       </div>
       {eventoParaColumna && (
-        <p className="mt-2 text-xs text-ink/40">
-          ✓ Marca "Registrado" cuando la persona llegue físicamente al evento. Si alguien no se presenta, elimínalo de la lista.
-        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-ink/40">
+            ✓ Marca "Registrado" cuando la persona llegue físicamente al evento. Si alguien no se presenta, elimínalo de la lista.
+          </p>
+          <label className="flex items-center gap-2 text-xs font-medium text-ink/60">
+            <input
+              type="checkbox"
+              checked={imprimirEtiquetaActivo}
+              onChange={e => cambiarImprimirEtiqueta(e.target.checked)}
+              className="h-3.5 w-3.5 accent-gold"
+            />
+            🖨️ Imprimir etiqueta al marcar "Registrado"
+          </label>
+        </div>
       )}
 
       <div className="mt-5">

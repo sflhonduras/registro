@@ -72,9 +72,9 @@ export default function RegistroEventoN() {
       ) : (
         <form onSubmit={enviar} className="mt-8 space-y-4">
           <input
-            required
+            required inputMode="numeric"
             value={dni}
-            onChange={e => setDni(e.target.value)}
+            onChange={e => setDni(e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
             placeholder="Número de identidad (DNI)"
             className="w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-center text-lg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
           />

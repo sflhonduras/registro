@@ -234,6 +234,7 @@ router.post('/registro/:orden', async (req, res) => {
   }
   const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
   if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI).' });
+  if (dni.length !== 13) return res.status(400).json({ error: 'El número de identidad (DNI) debe tener 13 dígitos.' });
 
   const evActualRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evAnteriorRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden - 1]);

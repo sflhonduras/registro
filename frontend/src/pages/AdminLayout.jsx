@@ -3,24 +3,42 @@ import { useEffect, useState } from 'react';
 import api from '../api';
 
 const enlaces = [
-  { to: '/admin/panel', label: 'Estadísticas', icon: '📊' },
-  { to: '/admin/participantes', label: 'Participantes', icon: '👥' },
-  { to: '/admin/diplomas', label: 'Diplomas', icon: '🎓' },
-  { to: '/admin/reportes', label: 'Reportería', icon: '📋' },
-  { to: '/admin/servidores', label: 'Servidores SFL', icon: '🙌' },
-  { to: '/admin/inventario', label: 'Inventario', icon: '📦' },
-  { to: '/admin/transporte', label: 'Transporte', icon: '🚐' },
-  { to: '/admin/eventos', label: 'Eventos', icon: '🗓️' },
-  { to: '/admin/usuarios', label: 'Usuarios', icon: '🔑', soloAdmin: true },
-  { to: '/admin/auditoria', label: 'Auditoría', icon: '🕵️', soloAdmin: true },
-  { to: '/admin/mantenimiento', label: 'Mantenimiento', icon: '🛠️', soloAdmin: true },
+  { to: '/admin/panel', label: 'Estadísticas', icon: '📊', modulo: 'estadisticas' },
+  { to: '/admin/participantes', label: 'Participantes', icon: '👥', modulo: 'participantes' },
+  { to: '/admin/diplomas', label: 'Diplomas', icon: '🎓', modulo: 'diplomas' },
+  { to: '/admin/reportes', label: 'Reportería', icon: '📋', modulo: 'reportes' },
+  { to: '/admin/medallas', label: 'Medallas', icon: '🏅', modulo: 'medallas' },
+  { to: '/admin/servidores', label: 'Servidores SFL', icon: '🙌', modulo: 'servidores' },
+  { to: '/admin/inventario', label: 'Inventario', icon: '📦', modulo: 'inventario' },
+  { to: '/admin/transporte', label: 'Transporte', icon: '🚐', modulo: 'transporte' },
+  { to: '/admin/eventos', label: 'Eventos', icon: '🗓️', modulo: 'eventos' },
+  { to: '/admin/usuarios', label: 'Usuarios', icon: '🔑', soloSuperAdmin: true },
+  { to: '/admin/auditoria', label: 'Auditoría', icon: '🕵️', soloSuperAdmin: true },
+  { to: '/admin/mantenimiento', label: 'Mantenimiento', icon: '🛠️', soloSuperAdmin: true },
 ];
+
+// Paquetes fijos de los roles que no se configuran módulo por módulo — deben coincidir
+// exactamente con lo que ya define auth.js en el backend, para que el menú no muestre algo
+// que la API luego va a rechazar.
+const MODULOS_CONSULTA_FIJO = ['estadisticas', 'reportes', 'inventario', 'transporte'];
+const PRESET_ESTANDAR = new Set(['servidores', 'inventario', 'transporte']);
+const PRESET_REGISTRO = new Set(['participantes', 'diplomas', 'inventario']);
+
+const ETIQUETA_ROL = {
+  super_admin: 'Super Administrador',
+  admin: 'Administrador',
+  consulta: 'Consulta (solo lectura)',
+  cocina: 'Cocina',
+  estandar: 'Usuario Estándar',
+  registro: 'Registro'
+};
 
 export default function AdminLayout() {
   const nav = useNavigate();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [totalRegistros, setTotalRegistros] = useState(null);
   const [eventoActual, setEventoActual] = useState(null);
+  const [misModulos, setMisModulos] = useState(null);
 
   useEffect(() => {
     api.get('/admin/evento-actual-resumen').then(r => {
@@ -28,6 +46,26 @@ export default function AdminLayout() {
       setEventoActual(r.data.evento_actual);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (usuario?.rol === 'admin') {
+      api.get('/admin/mis-permisos').then(r => setMisModulos(new Set(r.data.map(p => p.modulo)))).catch(() => setMisModulos(new Set()));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const puedeVer = (l) => {
+    const rol = usuario?.rol;
+    if (l.soloSuperAdmin) return rol === 'super_admin';
+    if (rol === 'super_admin') return true;
+    if (!l.modulo) return true;
+    if (rol === 'consulta') return MODULOS_CONSULTA_FIJO.includes(l.modulo);
+    if (rol === 'estandar') return PRESET_ESTANDAR.has(l.modulo);
+    if (rol === 'registro') return PRESET_REGISTRO.has(l.modulo);
+    if (rol === 'admin') return misModulos ? misModulos.has(l.modulo) : false;
+    return false;
+  };
+  const enlacesVisibles = enlaces.filter(puedeVer);
 
   const salir = () => {
     localStorage.removeItem('sfl_token');
@@ -43,7 +81,7 @@ export default function AdminLayout() {
         </NavLink>
         <span className="text-xs font-semibold text-gold-light">{totalRegistros ?? '…'} registros</span>
         <div className="flex gap-3">
-          {enlaces.filter(l => !l.soloAdmin || usuario?.rol === 'admin').map(l => (
+          {enlacesVisibles.map(l => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => `text-lg ${isActive ? 'opacity-100' : 'opacity-50'}`}>
               {l.icon}
             </NavLink>
@@ -57,7 +95,7 @@ export default function AdminLayout() {
         </NavLink>
         <p className="text-xs uppercase tracking-[0.2em] text-gold-light">Sesión activa</p>
         <p className="mt-1 font-display text-lg font-semibold text-parchment">{usuario?.nombre}</p>
-        <p className="text-xs text-parchment/50">{usuario?.rol === 'admin' ? 'Administrador' : 'Consulta (solo lectura)'}</p>
+        <p className="text-xs text-parchment/50">{ETIQUETA_ROL[usuario?.rol] || usuario?.rol}</p>
 
         <div className="mt-5 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3">
           <p className="text-xs uppercase tracking-wide text-gold-light">Registros del evento actual</p>
@@ -66,7 +104,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="mt-8 space-y-1">
-          {enlaces.filter(l => !l.soloAdmin || usuario?.rol === 'admin').map(l => (
+          {enlacesVisibles.map(l => (
             <NavLink
               key={l.to}
               to={l.to}

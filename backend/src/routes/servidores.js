@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
-import { requireAuth, requireRole } from '../auth.js';
+import { requireAuth, requireModulo } from '../auth.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +17,7 @@ router.use((req, res, next) => {
   if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
 });
+router.use(requireModulo('servidores', 'consulta'));
 
 const COLUMNAS_EXPORT = {
   nombre_completo: 'Nombre Completo',
@@ -94,7 +95,7 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
-router.post('/', requireRole('admin'), async (req, res) => {
+router.post('/', requireModulo('servidores', 'edicion'), async (req, res) => {
   const b = req.body || {};
   if (!b.nombre_completo) return res.status(400).json({ error: 'El nombre completo es obligatorio.' });
 
@@ -117,7 +118,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-router.put('/:id', requireRole('admin'), async (req, res) => {
+router.put('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
   const b = req.body || {};
   const datos = { ...b };
   if (b.nombre_completo) datos.nombre_completo = normalizarNombre(b.nombre_completo);
@@ -141,7 +142,7 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
 
 // POST /api/admin/servidores/reiniciar-participacion -> pone en falso el checkbox
 // "Participará en el evento" para TODOS los servidores de una vez (ej. antes de un evento nuevo).
-router.post('/reiniciar-participacion', requireRole('admin'), async (req, res) => {
+router.post('/reiniciar-participacion', requireModulo('servidores', 'edicion'), async (req, res) => {
   const { rowCount } = await query('UPDATE servidores SET participara_evento = FALSE WHERE participara_evento = TRUE');
   res.json({ mensaje: `Se reinició la participación de ${rowCount} servidor(es).`, actualizados: rowCount });
 });
@@ -384,7 +385,7 @@ router.get('/:id/ficha', async (req, res) => {
   doc.end();
 });
 
-router.delete('/:id', requireRole('admin'), async (req, res) => {
+router.delete('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
   const { rowCount } = await query('DELETE FROM servidores WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Servidor no encontrado.' });
   res.json({ mensaje: 'Servidor eliminado.' });

@@ -4,7 +4,7 @@ import xlsx from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
-import { requireAuth, requireModulo } from '../auth.js';
+import { requireAuth } from '../auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, '../../assets/logo.png');
@@ -15,7 +15,6 @@ router.use((req, res, next) => {
   if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
 });
-router.use(requireModulo('reportes', 'consulta'));
 
 // Campos disponibles del participante (siempre se pueden pedir)
 const CAMPOS_PARTICIPANTE = {
@@ -56,15 +55,14 @@ async function construirConsulta(q) {
   if (q.evento === 'repeticiones') {
     const filasMedallas = await calcularMedallas();
     const filasVueltas = calcularVueltasCompletas(filasMedallas);
-    const filasManuales = await obtenerMedallasManualesComoFilas();
 
     let filas;
     if (q.medalla === 'Vuelta Completa') {
-      filas = [...filasVueltas, ...filasManuales.filter(f => f.esVueltaCompleta)];
+      filas = filasVueltas;
     } else if (q.medalla && ['Bronce', 'Plata', 'Oro', 'Platino'].includes(q.medalla)) {
-      filas = [...filasMedallas.filter(f => f.medalla === q.medalla), ...filasManuales.filter(f => f.medalla === q.medalla)];
+      filas = filasMedallas.filter(f => f.medalla === q.medalla);
     } else {
-      filas = [...filasMedallas, ...filasVueltas, ...filasManuales];
+      filas = [...filasMedallas, ...filasVueltas];
     }
 
     const idsParticipantes = filas.map(f => f.participante_id);
@@ -114,7 +112,7 @@ async function construirConsulta(q) {
             dni: p.dni,
             capitulo: p.capitulo,
             nivel: 'SFL I-IV',
-            tema: f.esManual ? 'Vuelta Completa (registrado a mano)' : 'Vuelta Completa',
+            tema: 'Vuelta Completa',
             repeticion: f.repeticion_numero + 2,
             promocion_graduacion: f.promocion_graduacion,
             fecha_graduacion: f.fecha_graduacion,
@@ -126,7 +124,7 @@ async function construirConsulta(q) {
           dni: p.dni,
           capitulo: p.capitulo,
           nivel: `SFL ${NIVEL_ROMANO[f.nivel_orden]}`,
-          tema: f.esManual ? `${f.medalla_tema} (registrado a mano)` : f.medalla_tema,
+          tema: f.medalla_tema,
           repeticion: f.repeticion_numero,
           promocion_graduacion: f.promocion_graduacion,
           fecha_graduacion: f.fecha_graduacion,
@@ -286,7 +284,7 @@ async function calcularMedallas() {
     WITH graduaciones AS (
       SELECT i.participante_id, e.orden, i.fecha_graduacion, i.promocion_graduacion
       FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
-      WHERE i.fecha_graduacion IS NOT NULL AND i.fecha_graduacion <= now()
+      WHERE i.fecha_graduacion IS NOT NULL
       UNION ALL
       -- Solo cuenta reactivaciones REALES (alguien se volvió a inscribir de verdad, vía
       -- registro público). Las filas con motivo 'editado' son solo historial de auditoría de
@@ -295,7 +293,7 @@ async function calcularMedallas() {
       -- "repetidores" cuando el total histórico de graduados es apenas 260).
       SELECT ih.participante_id, e.orden, ih.fecha_graduacion, ih.promocion_graduacion
       FROM inscripciones_historial ih JOIN eventos e ON e.id = ih.evento_id
-      WHERE ih.fecha_graduacion IS NOT NULL AND ih.fecha_graduacion <= now() AND ih.motivo = 'reactivado'
+      WHERE ih.fecha_graduacion IS NOT NULL AND ih.motivo = 'reactivado'
     ),
     numeradas AS (
       SELECT participante_id, orden, fecha_graduacion, promocion_graduacion,
@@ -351,44 +349,6 @@ function calcularVueltasCompletas(filasMedallas) {
     }
   }
   return vueltas;
-}
-
-const TIPO_A_NIVEL_ORDEN = { Bronce: 1, Plata: 2, Oro: 3, Platino: 4 };
-
-// Trae las medallas otorgadas a mano (tabla medallas_manuales) en el MISMO formato que usan
-// calcularMedallas()/calcularVueltasCompletas(), para que fluyan por el mismo código de
-// armado del reporte sin duplicar lógica. Cada fila lleva esManual:true para poder marcarla
-// como tal en el reporte.
-async function obtenerMedallasManualesComoFilas() {
-  const { rows } = await query('SELECT participante_id, tipo, cantidad, nota, otorgada_en FROM medallas_manuales');
-  const filas = [];
-  for (const r of rows) {
-    for (let i = 0; i < r.cantidad; i++) {
-      if (r.tipo === 'Vuelta Completa') {
-        filas.push({
-          participante_id: r.participante_id,
-          esVueltaCompleta: true,
-          esManual: true,
-          repeticion_numero: i,
-          promocion_graduacion: null,
-          fecha_graduacion: r.otorgada_en
-        });
-      } else {
-        const nivelOrden = TIPO_A_NIVEL_ORDEN[r.tipo];
-        filas.push({
-          participante_id: r.participante_id,
-          nivel_orden: nivelOrden,
-          esManual: true,
-          repeticion_numero: 0,
-          promocion_graduacion: null,
-          fecha_graduacion: r.otorgada_en,
-          medalla: r.tipo,
-          medalla_tema: MEDALLA_POR_NIVEL[nivelOrden].tema
-        });
-      }
-    }
-  }
-  return filas;
 }
 
 function construirTitulo(eventoResuelto, esDesercion, esRepeticiones) {

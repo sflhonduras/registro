@@ -10,7 +10,7 @@ import HondurasMapa from '../components/HondurasMapa';
 
 const COLORES = ['#C9932F', '#B23A2E', '#2F5D3A', '#8A6A3C', '#6B7280'];
 
-function Tarjeta({ titulo, valor, nota, onClick }) {
+function Tarjeta({ titulo, valor, nota, desercion, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -18,7 +18,14 @@ function Tarjeta({ titulo, valor, nota, onClick }) {
     >
       <p className="text-[10px] font-semibold uppercase leading-tight tracking-wide text-ink/50">{titulo}</p>
       <p className="mt-1.5 font-display text-2xl font-bold text-ink">{valor}</p>
-      {nota && <p className="mt-0.5 text-[10px] text-ink/40">{nota}</p>}
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+        {nota && <p className="text-[10px] text-ink/40">{nota}</p>}
+        {desercion != null && (
+          <p className="rounded-full bg-ember/10 px-2 py-0.5 text-[10px] font-semibold text-ember">
+            ⚠ {desercion} deserción
+          </p>
+        )}
+      </div>
     </button>
   );
 }
@@ -73,7 +80,7 @@ export default function AdminDashboard() {
           onClick={() => nav('/admin/reportes?evento=todos')} />
         {datos.por_evento.map(e => (
           <Tarjeta key={e.orden} titulo={`${e.es_actual ? '⭐ ' : ''}Nivel ${e.orden} · Ciclo #${e.ciclo_actual}`} valor={e.total_ciclo_actual}
-            nota={`${e.total_inscritos} histórico`}
+            nota={`${e.total_inscritos} histórico`} desercion={e.desercion}
             onClick={() => nav(`/admin/reportes?evento=${e.orden}&alcance=ciclo_actual`)} />
         ))}
       </div>

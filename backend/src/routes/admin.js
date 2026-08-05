@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import PDFDocument from 'pdfkit';
 import xlsx from 'xlsx';
 import { query } from '../db.js';
-import { requireAuth, requireRole } from '../auth.js';
+import { requireAuth, requireRole, requireModulo, requireSuperAdmin, requireEditarPresencial } from '../auth.js';
 import { normalizarNombre } from '../texto.js';
 
 const router = Router();
@@ -16,7 +16,7 @@ router.use((req, res, next) => {
 /* ---------------------------- PARTICIPANTES ---------------------------- */
 
 // GET /api/admin/participantes?buscar=&pagina=&limite=&evento=
-router.get('/participantes', async (req, res) => {
+router.get('/participantes', requireModulo('participantes', 'consulta'), async (req, res) => {
   const pagina = Math.max(parseInt(req.query.pagina, 10) || 1, 1);
   const limite = Math.min(parseInt(req.query.limite, 10) || 50, 200);
   const offset = (pagina - 1) * limite;
@@ -64,7 +64,7 @@ router.get('/participantes', async (req, res) => {
   res.json({ total: totalRes.rows[0].total, pagina, limite, datos: dataRes.rows });
 });
 
-router.get('/participantes/:id', async (req, res) => {
+router.get('/participantes/:id', requireModulo('participantes', 'consulta'), async (req, res) => {
   const { rows } = await query('SELECT * FROM participantes WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
   const insc = await query(
@@ -86,11 +86,11 @@ const CAMPOS_PARTICIPANTE = [
   'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
   'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio', 'tiempo_comparte_testimonio',
   'ha_recibido_sael', 'cantidad_saeles', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono',
-  'pin', 'observacion', 'fallecido'
+  'pin', 'observacion'
 ];
 
-// POST /api/admin/participantes  (crear manualmente) - solo admin
-router.post('/participantes', requireRole('admin'), async (req, res) => {
+// POST /api/admin/participantes  (crear manualmente) - requiere edición en participantes
+router.post('/participantes', requireModulo('participantes', 'edicion'), async (req, res) => {
   const b = req.body || {};
   if (!b.nombre_completo || !b.dni) return res.status(400).json({ error: 'Nombre y DNI son obligatorios.' });
   if (b.nombre_completo) b.nombre_completo = normalizarNombre(b.nombre_completo);
@@ -111,8 +111,8 @@ router.post('/participantes', requireRole('admin'), async (req, res) => {
   }
 });
 
-// PUT /api/admin/participantes/:id - solo admin
-router.put('/participantes/:id', requireRole('admin'), async (req, res) => {
+// PUT /api/admin/participantes/:id - requiere edición en participantes
+router.put('/participantes/:id', requireModulo('participantes', 'edicion'), async (req, res) => {
   const b = req.body || {};
   if (b.nombre_completo) b.nombre_completo = normalizarNombre(b.nombre_completo);
   if (b.contacto_emergencia_nombre) b.contacto_emergencia_nombre = normalizarNombre(b.contacto_emergencia_nombre);
@@ -132,7 +132,9 @@ router.put('/participantes/:id', requireRole('admin'), async (req, res) => {
 
 // DELETE /api/admin/participantes/:id - solo admin
 // PUT /api/admin/participantes/:id/inscripciones/:orden/presencial - marcar asistencia presencial
-router.put('/participantes/:id/inscripciones/:orden/presencial', requireRole('admin'), async (req, res) => {
+// Permiso especial: además de quien tenga edición en 'participantes', el rol 'registro'
+// también puede tocar ESTA acción puntual, aunque no tenga edición general del módulo.
+router.put('/participantes/:id/inscripciones/:orden/presencial', requireEditarPresencial, async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const { registrado_presencial } = req.body || {};
   const { rowCount } = await query(
@@ -144,14 +146,14 @@ router.put('/participantes/:id/inscripciones/:orden/presencial', requireRole('ad
   res.json({ mensaje: 'Actualizado.' });
 });
 
-router.delete('/participantes/:id', requireRole('admin'), async (req, res) => {
+router.delete('/participantes/:id', requireModulo('participantes', 'edicion'), async (req, res) => {
   const { rowCount } = await query('DELETE FROM participantes WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Participante no encontrado.' });
   res.json({ mensaje: 'Participante eliminado.' });
 });
 
-// POST /api/admin/participantes/:id/inscripciones/:orden - inscribir manualmente (admin) a un evento
-router.post('/participantes/:id/inscripciones/:orden', requireRole('admin'), async (req, res) => {
+// POST /api/admin/participantes/:id/inscripciones/:orden - inscribir manualmente a un evento
+router.post('/participantes/:id/inscripciones/:orden', requireModulo('participantes', 'edicion'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const evRes = await query('SELECT id, ciclo_actual FROM eventos WHERE orden = $1', [orden]);
   if (!evRes.rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
@@ -167,8 +169,8 @@ router.post('/participantes/:id/inscripciones/:orden', requireRole('admin'), asy
   }
 });
 
-// DELETE /api/admin/participantes/:id/inscripciones/:orden - quitar inscripción (admin)
-router.delete('/participantes/:id/inscripciones/:orden', requireRole('admin'), async (req, res) => {
+// DELETE /api/admin/participantes/:id/inscripciones/:orden - quitar inscripción
+router.delete('/participantes/:id/inscripciones/:orden', requireModulo('participantes', 'edicion'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const existente = await query(
     `SELECT i.* FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
@@ -195,12 +197,12 @@ router.delete('/participantes/:id/inscripciones/:orden', requireRole('admin'), a
 
 /* ------------------------------- EVENTOS -------------------------------- */
 
-router.get('/eventos', async (req, res) => {
+router.get('/eventos', requireModulo('eventos', 'consulta'), async (req, res) => {
   const { rows } = await query('SELECT * FROM eventos ORDER BY orden');
   res.json(rows);
 });
 
-router.put('/eventos/:orden', requireRole('admin'), async (req, res) => {
+router.put('/eventos/:orden', requireModulo('eventos', 'edicion'), async (req, res) => {
   const b = req.body || {};
   const campos = ['nombre', 'descripcion', 'fecha_evento', 'fecha_evento_fin', 'hora_evento', 'lugar', 'fecha_limite_registro', 'activo', 'cupo_maximo'];
   const cols = campos.filter(c => b[c] !== undefined);
@@ -219,7 +221,7 @@ router.put('/eventos/:orden', requireRole('admin'), async (req, res) => {
 // POST /api/admin/eventos/:orden/nuevo-ciclo
 // Marca un nuevo ciclo/edición de este nivel. Las inscripciones anteriores quedan intactas
 // en el historial, pero dejan de contarse como "del evento actual" en estadísticas y diplomas.
-router.post('/eventos/:orden/nuevo-ciclo', requireRole('admin'), async (req, res) => {
+router.post('/eventos/:orden/nuevo-ciclo', requireModulo('eventos', 'edicion'), async (req, res) => {
   const { rows } = await query(
     'UPDATE eventos SET ciclo_actual = ciclo_actual + 1, actualizado_en = now() WHERE orden = $1 RETURNING *',
     [req.params.orden]
@@ -231,7 +233,7 @@ router.post('/eventos/:orden/nuevo-ciclo', requireRole('admin'), async (req, res
 // POST /api/admin/eventos/:orden/marcar-actual
 // Marca este nivel como "el evento actual" (el único que se muestra en el contador principal
 // del panel). Desmarca automáticamente cualquier otro nivel que lo tuviera antes.
-router.post('/eventos/:orden/marcar-actual', requireRole('admin'), async (req, res) => {
+router.post('/eventos/:orden/marcar-actual', requireModulo('eventos', 'edicion'), async (req, res) => {
   await query('UPDATE eventos SET es_actual = FALSE');
   const { rows } = await query(
     'UPDATE eventos SET es_actual = TRUE WHERE orden = $1 RETURNING *',
@@ -242,7 +244,7 @@ router.post('/eventos/:orden/marcar-actual', requireRole('admin'), async (req, r
 });
 
 // POST /api/admin/promocion/avanzar -> avanza la promoción actual en +1 (ej. de V a VI)
-router.post('/promocion/avanzar', requireRole('admin'), async (req, res) => {
+router.post('/promocion/avanzar', requireModulo('eventos', 'edicion'), async (req, res) => {
   const actual = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
   const nuevoValor = (parseInt(actual.rows[0]?.valor || '0', 10) + 1);
   await query(
@@ -269,8 +271,8 @@ router.get('/evento-actual-resumen', async (req, res) => {
   res.json({ evento_actual: rows[0] || null });
 });
 
-router.get('/estadisticas', async (req, res) => {
-  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4] = await Promise.all([
+router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (req, res) => {
+  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4, porDesercion] = await Promise.all([
     query(`
       SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
         COUNT(i.id)::int AS total_inscritos,
@@ -308,12 +310,33 @@ router.get('/estadisticas', async (req, res) => {
     query(`
       SELECT COUNT(*)::int AS total
       FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
-      WHERE e.orden = 4 AND i.fecha_graduacion IS NOT NULL`)
+      WHERE e.orden = 4 AND i.fecha_graduacion IS NOT NULL`),
+    // Deserción por nivel: para cada nivel de destino (2, 3, 4), cuenta a quienes
+    // completaron el nivel ANTERIOR en un ciclo ya cerrado (no el que está inscribiéndose
+    // ahora mismo) y NUNCA tienen ninguna fila en el nivel de destino. Misma lógica que usa
+    // Reportería para "Deserción Nivel X".
+    query(`
+      SELECT e_dest.orden AS orden, COUNT(*)::int AS total
+      FROM eventos e_prev
+      JOIN inscripciones i_prev ON i_prev.evento_id = e_prev.id AND i_prev.ciclo <> e_prev.ciclo_actual
+      JOIN eventos e_dest ON e_dest.orden = e_prev.orden + 1
+      WHERE e_prev.orden IN (1, 2, 3)
+        AND NOT EXISTS (
+          SELECT 1 FROM inscripciones i_cur
+          WHERE i_cur.participante_id = i_prev.participante_id AND i_cur.evento_id = e_dest.id
+        )
+      GROUP BY e_dest.orden`)
   ]);
 
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
   const eventoActual = porEvento.rows.find(e => e.es_actual) || null;
   const promocionActual = promocionRes.rows[0] ? parseInt(promocionRes.rows[0].valor, 10) : null;
+
+  const desercionPorOrden = new Map(porDesercion.rows.map(r => [r.orden, r.total]));
+  const porEventoConDesercion = porEvento.rows.map(e => ({
+    ...e,
+    desercion: desercionPorOrden.has(e.orden) ? desercionPorOrden.get(e.orden) : null
+  }));
 
   // Agrupa municipios bajo cada departamento (para el mapa de Honduras)
   const mapaDepartamentos = {};
@@ -328,7 +351,7 @@ router.get('/estadisticas', async (req, res) => {
     total_ciclo_actual: totalCicloActual,
     evento_actual: eventoActual,
     promocion_actual: promocionActual,
-    por_evento: porEvento.rows,
+    por_evento: porEventoConDesercion,
     por_zona: porZona.rows,
     por_departamento: porDepartamento.rows,
     por_capitulo: porCapitulo.rows,
@@ -341,7 +364,7 @@ router.get('/estadisticas', async (req, res) => {
 });
 
 // GET /api/admin/estadisticas/excel -> descarga un libro de Excel con varias hojas
-router.get('/estadisticas/excel', async (req, res) => {
+router.get('/estadisticas/excel', requireModulo('estadisticas', 'consulta'), async (req, res) => {
   const [porEvento, porZona, porDepartamento, porCapitulo, porDia] = await Promise.all([
     query(`
       SELECT e.orden AS "Nivel", e.nombre AS "Nombre", e.ciclo_actual AS "Ciclo actual",
@@ -378,15 +401,15 @@ router.get('/estadisticas/excel', async (req, res) => {
 
 /* ---------------------------- USUARIOS ADMIN ----------------------------- */
 
-router.get('/usuarios', requireRole('admin'), async (req, res) => {
+router.get('/usuarios', requireSuperAdmin, async (req, res) => {
   const { rows } = await query('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios_admin ORDER BY id');
   res.json(rows);
 });
 
-router.post('/usuarios', requireRole('admin'), async (req, res) => {
+router.post('/usuarios', requireSuperAdmin, async (req, res) => {
   const { nombre, email, password, rol } = req.body || {};
   if (!nombre || !email || !password || !rol) return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
-  if (!['admin', 'consulta', 'cocina'].includes(rol)) return res.status(400).json({ error: 'Rol inválido.' });
+  if (!['admin', 'consulta', 'cocina', 'estandar', 'registro'].includes(rol)) return res.status(400).json({ error: 'Rol inválido.' });
   const hash = await bcrypt.hash(password, 10);
   try {
     const { rows } = await query(
@@ -400,7 +423,7 @@ router.post('/usuarios', requireRole('admin'), async (req, res) => {
   }
 });
 
-router.put('/usuarios/:id', requireRole('admin'), async (req, res) => {
+router.put('/usuarios/:id', requireSuperAdmin, async (req, res) => {
   const { nombre, rol, activo, password } = req.body || {};
   const sets = [];
   const vals = [];
@@ -418,11 +441,71 @@ router.put('/usuarios/:id', requireRole('admin'), async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/usuarios/:id', requireRole('admin'), async (req, res) => {
+router.delete('/usuarios/:id', requireSuperAdmin, async (req, res) => {
   if (String(req.user.id) === req.params.id) return res.status(400).json({ error: 'No puedes eliminar tu propio usuario.' });
   const { rowCount } = await query('DELETE FROM usuarios_admin WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Usuario no encontrado.' });
   res.json({ mensaje: 'Usuario eliminado.' });
+});
+
+// Lista de módulos que aparecen en el panel de permisos del rol "Administrador" (configurable
+// por el Super Administrador). Los 12 módulos del sistema existen, pero Usuarios, Auditoría y
+// Mantenimiento NUNCA aparecen aquí — esas tres pantallas quedan exclusivas del Super
+// Administrador siempre, sin excepción ni configuración posible.
+const MODULOS_CON_PERMISOS = [
+  { clave: 'estadisticas', etiqueta: 'Estadísticas', activo: true },
+  { clave: 'participantes', etiqueta: 'Participantes', activo: true },
+  { clave: 'diplomas', etiqueta: 'Diplomas', activo: true },
+  { clave: 'reportes', etiqueta: 'Reportería', activo: true },
+  { clave: 'medallas', etiqueta: 'Medallas', activo: true },
+  { clave: 'servidores', etiqueta: 'Servidores SFL', activo: true },
+  { clave: 'inventario', etiqueta: 'Inventario', activo: true },
+  { clave: 'transporte', etiqueta: 'Transporte', activo: true },
+  { clave: 'eventos', etiqueta: 'Eventos', activo: true }
+];
+
+router.get('/modulos-disponibles', requireSuperAdmin, (req, res) => {
+  res.json(MODULOS_CON_PERMISOS);
+});
+
+// GET /api/admin/mis-permisos -> cualquier usuario logueado puede ver SUS PROPIOS permisos
+// (a diferencia de /usuarios/:id/permisos, que es solo para que el admin vea los de otros).
+// Lo usa el menú lateral para saber qué mostrar/ocultar.
+router.get('/mis-permisos', async (req, res) => {
+  const { rows } = await query('SELECT modulo, nivel FROM permisos_modulo WHERE usuario_admin_id = $1', [req.user.id]);
+  res.json(rows);
+});
+
+// GET /api/admin/usuarios/:id/permisos -> permisos actuales de un usuario "estandar"
+router.get('/usuarios/:id/permisos', requireSuperAdmin, async (req, res) => {
+  const { rows } = await query(
+    'SELECT modulo, nivel FROM permisos_modulo WHERE usuario_admin_id = $1',
+    [req.params.id]
+  );
+  res.json(rows);
+});
+
+// PUT /api/admin/usuarios/:id/permisos  body: { permisos: [{ modulo, nivel }, ...] }
+// Reemplaza TODOS los permisos del usuario de una sola vez, más simple que ir sumando/
+// restando módulo por módulo — la pantalla manda la lista completa cada vez que se guarda.
+router.put('/usuarios/:id/permisos', requireSuperAdmin, async (req, res) => {
+  const { permisos } = req.body || {};
+  if (!Array.isArray(permisos)) return res.status(400).json({ error: 'permisos debe ser una lista.' });
+
+  const clavesValidas = MODULOS_CON_PERMISOS.map(m => m.clave);
+  for (const p of permisos) {
+    if (!clavesValidas.includes(p.modulo)) return res.status(400).json({ error: `Módulo inválido: ${p.modulo}` });
+    if (!['consulta', 'edicion'].includes(p.nivel)) return res.status(400).json({ error: `Nivel inválido: ${p.nivel}` });
+  }
+
+  await query('DELETE FROM permisos_modulo WHERE usuario_admin_id = $1', [req.params.id]);
+  for (const p of permisos) {
+    await query(
+      'INSERT INTO permisos_modulo (usuario_admin_id, modulo, nivel) VALUES ($1,$2,$3)',
+      [req.params.id, p.modulo, p.nivel]
+    );
+  }
+  res.json({ mensaje: 'Permisos actualizados.' });
 });
 
 // PUT /api/admin/participantes/:id/inscripciones/:orden/graduacion - fijar/quitar fecha de graduación
@@ -430,7 +513,7 @@ router.delete('/usuarios/:id', requireRole('admin'), async (req, res) => {
 // Permite corregir a mano fecha de graduación, promoción y ciclo de una inscripción puntual.
 // Pensado sobre todo para las 4 promociones que vivieron en Excel antes de este sistema:
 // asignarles un ciclo "histórico" (ej. 0) evita que se mezclen con el ciclo en vivo actual.
-router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('admin'), async (req, res) => {
+router.put('/participantes/:id/inscripciones/:orden/graduacion', requireModulo('participantes', 'edicion'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const { fecha_graduacion, promocion_graduacion, ciclo } = req.body || {};
 
@@ -479,7 +562,7 @@ router.put('/participantes/:id/inscripciones/:orden/graduacion', requireRole('ad
 /* -------------------------------- DIPLOMAS -------------------------------- */
 
 // GET /api/admin/diplomas/:orden -> lista de participantes registrados en ese nivel
-router.get('/diplomas/:orden', async (req, res) => {
+router.get('/diplomas/:orden', requireModulo('diplomas', 'consulta'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evento = evRes.rows[0];
@@ -497,7 +580,7 @@ router.get('/diplomas/:orden', async (req, res) => {
 });
 
 // GET /api/admin/diplomas/:orden/excel -> descarga .xlsx con Numero, Nombre, Capítulo, Cargo
-router.get('/diplomas/:orden/excel', async (req, res) => {
+router.get('/diplomas/:orden/excel', requireModulo('diplomas', 'consulta'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evento = evRes.rows[0];
@@ -530,7 +613,7 @@ router.get('/diplomas/:orden/excel', async (req, res) => {
 });
 
 // GET /api/admin/diplomas/:orden/pdf -> descarga PDF con la misma lista
-router.get('/diplomas/:orden/pdf', async (req, res) => {
+router.get('/diplomas/:orden/pdf', requireModulo('diplomas', 'consulta'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evento = evRes.rows[0];
@@ -585,7 +668,7 @@ router.get('/diplomas/:orden/pdf', async (req, res) => {
 // GET /api/admin/exportar-contacto/:orden?ciclo_actual=true|false&desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 // Descarga .xlsx con Nombre Completo, Capítulo, Teléfono, Zona, Cargo de quienes se
 // registraron a ese nivel, ya sea en el ciclo actual o en un rango de fechas elegido.
-router.get('/exportar-contacto/:orden', async (req, res) => {
+router.get('/exportar-contacto/:orden', requireModulo('participantes', 'consulta'), async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
   const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evento = evRes.rows[0];
@@ -633,7 +716,7 @@ router.get('/exportar-contacto/:orden', async (req, res) => {
 /* ------------------------------ EXPORTAR CSV ------------------------------ */
 
 
-router.get('/exportar/participantes.csv', async (req, res) => {
+router.get('/exportar/participantes.csv', requireModulo('participantes', 'consulta'), async (req, res) => {
   const { rows } = await query(`
     SELECT p.*,
       (SELECT string_agg(e.codigo, ',' ORDER BY e.orden) FROM inscripciones i JOIN eventos e ON e.id=i.evento_id WHERE i.participante_id=p.id) AS eventos_inscritos

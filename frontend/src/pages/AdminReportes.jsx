@@ -10,9 +10,26 @@ const NIVELES = [
   { valor: '2', etiqueta: 'Nivel II' },
   { valor: '3', etiqueta: 'Nivel III' },
   { valor: '4', etiqueta: 'Nivel IV' },
+  { valor: 'repeticiones', etiqueta: '🏅 Repeticiones (2da vuelta o más)' },
 ];
 
+const MEDALLAS = ['Bronce', 'Plata', 'Oro', 'Platino', 'Vuelta Completa'];
+
 const CAMPOS_POR_DEFECTO = ['nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'cargo_fihnec'];
+
+// Mismas columnas que en el resto del sistema se tratan como fecha — se formatean igual que
+// en AdminParticipantes.jsx ("04 jul. 2026"), en vez de mostrar el timestamp técnico en crudo.
+const CAMPOS_FECHA = new Set(['registrado_en', 'fecha_graduacion', 'ultimo_registro_nivel_anterior']);
+
+function formatearValorColumna(clave, valor) {
+  if (valor == null || valor === '') return '—';
+  if (CAMPOS_FECHA.has(clave)) {
+    const d = new Date(valor);
+    if (isNaN(d)) return String(valor);
+    return d.toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+  return String(valor);
+}
 
 export default function AdminReportes() {
   const [parametrosUrl] = useSearchParams();
@@ -25,6 +42,7 @@ export default function AdminReportes() {
   const [departamento, setDepartamento] = useState('');
   const [capitulo, setCapitulo] = useState('');
   const [buscar, setBuscar] = useState('');
+  const [medalla, setMedalla] = useState('');
   const [promocion] = useState(parametrosUrl.get('promocion') || '');
   const [campos, setCampos] = useState(CAMPOS_POR_DEFECTO);
   const [resultado, setResultado] = useState(null);
@@ -59,6 +77,7 @@ export default function AdminReportes() {
     if (departamento) params.set('departamento', departamento);
     if (capitulo) params.set('capitulo', capitulo);
     if (buscar) params.set('buscar', buscar);
+    if (nivel === 'repeticiones' && medalla) params.set('medalla', medalla);
     params.set('campos', campos.join(','));
     return params;
   };
@@ -91,21 +110,32 @@ export default function AdminReportes() {
     }
   };
 
+  const NIVEL_ROMANO = { '1': 'I', '2': 'II', '3': 'III', '4': 'IV' };
+  const tituloImpresion = nivel === 'repeticiones'
+    ? 'Reporte de Repeticiones SFL — Medallas 🏅'
+    : alcance === 'desercion'
+      ? `Reporte de Deserción SFL ${NIVEL_ROMANO[nivel]}`
+      : (nivel !== 'todos' ? `Reporte SFL Nivel ${NIVEL_ROMANO[nivel] || nivel}` : 'Reporte de Participantes');
+  const colorEncabezadoImpresion = alcance === 'desercion' ? '#B23A2E' : '#241A12';
+  const colorBandaImpresion = alcance === 'desercion' ? '#F3DAD6' : '#F1E6CC';
+
   const imprimir = () => {
     if (!resultado) return;
     const filas = resultado.filas.map((f, i) => `
-      <tr><td>${i + 1}</td>${resultado.columnas.map(c => `<td>${f[c.clave] ?? ''}</td>`).join('')}</tr>`).join('');
+      <tr><td>${i + 1}</td>${resultado.columnas.map(c => `<td>${formatearValorColumna(c.clave, f[c.clave])}</td>`).join('')}</tr>`).join('');
     const html = `
-      <html><head><title>Reporte SFL</title>
+      <html><head><title>${tituloImpresion}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 24px; }
-        h1 { font-size: 18px; margin-bottom: 2px; }
+        h1 { font-size: 16px; margin-bottom: 2px; color: ${colorEncabezadoImpresion}; }
+        h2 { font-size: 13px; font-weight: normal; color: #555; margin-top: 2px; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
         th, td { border: 1px solid #ccc; padding: 6px 10px; font-size: 11px; text-align: left; }
-        th { background: #f0ede4; }
+        th { background: ${colorBandaImpresion}; }
       </style></head>
       <body>
-        <h1>FIHNEC · Reporte de participantes</h1>
+        <h1>FIHNEC · Seminario para la Formación de Líderes</h1>
+        <h2>${tituloImpresion}</h2>
         <table>
           <thead><tr><th>#</th>${resultado.columnas.map(c => `<th>${c.titulo}</th>`).join('')}</tr></thead>
           <tbody>${filas}</tbody>
@@ -131,21 +161,40 @@ export default function AdminReportes() {
         <div className="flex flex-wrap gap-3">
           <label className="text-sm">
             <span className="mb-1 block text-ink/60">Nivel</span>
-            <select value={nivel} onChange={e => setNivel(e.target.value)} className={claseSelect}>
+            <select value={nivel} onChange={e => {
+              const nuevoNivel = e.target.value;
+              setNivel(nuevoNivel);
+              if (alcance === 'desercion' && !['2', '3', '4'].includes(nuevoNivel)) setAlcance('historico');
+            }} className={claseSelect}>
               {NIVELES.map(n => <option key={n.valor} value={n.valor}>{n.etiqueta}</option>)}
             </select>
           </label>
 
-          <label className="text-sm">
-            <span className="mb-1 block text-ink/60">¿Qué registros?</span>
-            <select value={alcance} onChange={e => setAlcance(e.target.value)} className={claseSelect}>
-              <option value="historico">Todo el historial</option>
-              {nivel !== 'todos' && <option value="ciclo_actual">Solo el ciclo actual</option>}
-              <option value="rango">Rango de fechas personalizado</option>
-            </select>
-          </label>
+          {nivel !== 'repeticiones' && (
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">¿Qué registros?</span>
+              <select value={alcance} onChange={e => setAlcance(e.target.value)} className={claseSelect}>
+                <option value="historico">Todo el historial</option>
+                {nivel !== 'todos' && <option value="ciclo_actual">Solo el ciclo actual</option>}
+                <option value="rango">Rango de fechas personalizado</option>
+                {['2', '3', '4'].includes(nivel) && (
+                  <option value="desercion">Deserción Nivel {{ '2': 'II', '3': 'III', '4': 'IV' }[nivel]}</option>
+                )}
+              </select>
+            </label>
+          )}
 
-          {alcance === 'rango' && (
+          {nivel === 'repeticiones' && (
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">Medalla (opcional)</span>
+              <select value={medalla} onChange={e => setMedalla(e.target.value)} className={claseSelect}>
+                <option value="">Todas</option>
+                {MEDALLAS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+          )}
+
+          {nivel !== 'repeticiones' && alcance === 'rango' && (
             <>
               <label className="text-sm">
                 <span className="mb-1 block text-ink/60">Desde</span>
@@ -186,23 +235,25 @@ export default function AdminReportes() {
         </div>
 
         {/* Selección de columnas */}
-        <div>
-          <p className="mb-2 text-sm font-medium text-ink/70">Columnas a incluir en el reporte</p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
-            {Object.entries(camposDisponibles.participante).map(([clave, titulo]) => (
-              <label key={clave} className="flex items-center gap-2 text-sm text-ink/70">
-                <input type="checkbox" checked={campos.includes(clave)} onChange={() => toggleCampo(clave)} />
-                {titulo}
-              </label>
-            ))}
-            {nivel !== 'todos' && Object.entries(camposDisponibles.inscripcion).map(([clave, titulo]) => (
-              <label key={clave} className="flex items-center gap-2 text-sm text-ink/70">
-                <input type="checkbox" checked={campos.includes(clave)} onChange={() => toggleCampo(clave)} />
-                {titulo}
-              </label>
-            ))}
+        {nivel !== 'repeticiones' && (
+          <div>
+            <p className="mb-2 text-sm font-medium text-ink/70">Columnas a incluir en el reporte</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
+              {Object.entries(camposDisponibles.participante).map(([clave, titulo]) => (
+                <label key={clave} className="flex items-center gap-2 text-sm text-ink/70">
+                  <input type="checkbox" checked={campos.includes(clave)} onChange={() => toggleCampo(clave)} />
+                  {titulo}
+                </label>
+              ))}
+              {nivel !== 'todos' && alcance !== 'desercion' && Object.entries(camposDisponibles.inscripcion).map(([clave, titulo]) => (
+                <label key={clave} className="flex items-center gap-2 text-sm text-ink/70">
+                  <input type="checkbox" checked={campos.includes(clave)} onChange={() => toggleCampo(clave)} />
+                  {titulo}
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <button onClick={generar} disabled={cargando}
           className="rounded-full bg-gold px-6 py-2.5 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
@@ -214,7 +265,19 @@ export default function AdminReportes() {
       {resultado && (
         <div className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-ink/60">{resultado.total} resultado(s)</p>
+            <p className="text-sm text-ink/60">
+              {alcance === 'desercion' && (
+                <span className="mr-2 rounded-full bg-ember/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ember">
+                  ⚠ Deserción Nivel {{ '2': 'II', '3': 'III', '4': 'IV' }[nivel]}
+                </span>
+              )}
+              {nivel === 'repeticiones' && (
+                <span className="mr-2 rounded-full bg-gold/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gold">
+                  🏅 Repeticiones — Medallas
+                </span>
+              )}
+              {resultado.total} resultado(s)
+            </p>
             <div className="flex gap-2">
               <button onClick={imprimir} className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5">
                 🖨️ Imprimir
@@ -242,7 +305,7 @@ export default function AdminReportes() {
                 {resultado.filas.map((f, i) => (
                   <tr key={i} className="border-t border-ink/5">
                     <td className="px-4 py-2 text-ink/50">{i + 1}</td>
-                    {resultado.columnas.map(c => <td key={c.clave} className="px-4 py-2 text-ink/70">{String(f[c.clave] ?? '—')}</td>)}
+                    {resultado.columnas.map(c => <td key={c.clave} className="px-4 py-2 text-ink/70">{formatearValorColumna(c.clave, f[c.clave])}</td>)}
                   </tr>
                 ))}
                 {resultado.filas.length === 0 && (

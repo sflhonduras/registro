@@ -2,7 +2,7 @@ import { Router } from 'express';
 import PDFDocument from 'pdfkit';
 import xlsx from 'xlsx';
 import { query } from '../db.js';
-import { requireAuth, requireRole } from '../auth.js';
+import { requireAuth, requireModulo } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -10,6 +10,9 @@ router.use((req, res, next) => {
   if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
 });
+// Nivel mínimo para siquiera VER este módulo (admin/consulta pasan igual que siempre;
+// un usuario "estandar" necesita que el admin le haya dado permiso de consulta o edición).
+router.use(requireModulo('inventario', 'consulta'));
 
 /* ----------------------------- CATEGORÍAS FIJAS ----------------------------- */
 
@@ -46,7 +49,7 @@ router.get('/categorias', async (req, res) => {
 });
 
 // PUT /api/admin/inventario/categorias/:id/responsables  body: { servidor_ids: [1,2,...] }
-router.put('/categorias/:id/responsables', requireRole('admin'), async (req, res) => {
+router.put('/categorias/:id/responsables', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { servidor_ids } = req.body || {};
   if (!Array.isArray(servidor_ids)) return res.status(400).json({ error: 'servidor_ids debe ser una lista.' });
   await query('DELETE FROM responsables_categoria WHERE categoria_id = $1', [req.params.id]);
@@ -59,7 +62,7 @@ router.put('/categorias/:id/responsables', requireRole('admin'), async (req, res
 /* --------------------------------- ÍTEMS --------------------------------- */
 
 // POST /api/admin/inventario/categorias/:id/items -> crear ítem en una categoría fija
-router.post('/categorias/:id/items', requireRole('admin'), async (req, res) => {
+router.post('/categorias/:id/items', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { nombre, tipo_medida, tipo_material, umbral_alerta } = req.body || {};
   if (!nombre || !tipo_medida) return res.status(400).json({ error: 'Nombre y tipo de medida son obligatorios.' });
   if (!['porcentaje', 'unidades', 'estado'].includes(tipo_medida)) {
@@ -74,7 +77,7 @@ router.post('/categorias/:id/items', requireRole('admin'), async (req, res) => {
 });
 
 // PUT /api/admin/inventario/items/:id -> editar nombre/tipo/umbral de un ítem (no la cantidad)
-router.put('/items/:id', requireRole('admin'), async (req, res) => {
+router.put('/items/:id', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { nombre, tipo_medida, tipo_material, umbral_alerta } = req.body || {};
   const { rows } = await query(
     `UPDATE items_inventario SET nombre = COALESCE($1, nombre), tipo_medida = COALESCE($2, tipo_medida),
@@ -86,7 +89,7 @@ router.put('/items/:id', requireRole('admin'), async (req, res) => {
 });
 
 // DELETE /api/admin/inventario/items/:id
-router.delete('/items/:id', requireRole('admin'), async (req, res) => {
+router.delete('/items/:id', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { rowCount } = await query('DELETE FROM items_inventario WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Ítem no encontrado.' });
   res.json({ mensaje: 'Ítem eliminado.' });
@@ -160,7 +163,7 @@ router.get('/talleres', async (req, res) => {
 });
 
 // PUT /api/admin/inventario/conferencias/:id/responsable  body: { servidor_id }
-router.put('/conferencias/:id/responsable', requireRole('admin'), async (req, res) => {
+router.put('/conferencias/:id/responsable', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { servidor_id } = req.body || {};
   const { rows } = await query(
     'UPDATE conferencias SET responsable_id = $1 WHERE id = $2 RETURNING *',
@@ -171,7 +174,7 @@ router.put('/conferencias/:id/responsable', requireRole('admin'), async (req, re
 });
 
 // POST /api/admin/inventario/conferencias/:id/items -> agregar ítem/material a un taller
-router.post('/conferencias/:id/items', requireRole('admin'), async (req, res) => {
+router.post('/conferencias/:id/items', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { nombre, tipo_medida, tipo_material, umbral_alerta } = req.body || {};
   if (!nombre || !tipo_medida) return res.status(400).json({ error: 'Nombre y tipo de medida son obligatorios.' });
   const tallerRes = await query("SELECT id FROM categorias_inventario WHERE tipo = 'taller' LIMIT 1");
@@ -186,7 +189,7 @@ router.post('/conferencias/:id/items', requireRole('admin'), async (req, res) =>
 /* ------------------------------ PERMISOS ESPECIALES ------------------------------ */
 
 // GET /api/admin/inventario/permisos -> quién tiene el permiso especial de cambiar nivel activo
-router.get('/permisos', requireRole('admin'), async (req, res) => {
+router.get('/permisos', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { rows } = await query(
     `SELECT u.id, u.nombre, u.email, u.rol FROM permisos_especiales pe
      JOIN usuarios_admin u ON u.id = pe.usuario_admin_id
@@ -196,7 +199,7 @@ router.get('/permisos', requireRole('admin'), async (req, res) => {
 });
 
 // POST /api/admin/inventario/permisos  body: { usuario_admin_id }
-router.post('/permisos', requireRole('admin'), async (req, res) => {
+router.post('/permisos', requireModulo('inventario', 'edicion'), async (req, res) => {
   const { usuario_admin_id } = req.body || {};
   if (!usuario_admin_id) return res.status(400).json({ error: 'usuario_admin_id es obligatorio.' });
   await query(
@@ -208,7 +211,7 @@ router.post('/permisos', requireRole('admin'), async (req, res) => {
 });
 
 // DELETE /api/admin/inventario/permisos/:usuarioAdminId
-router.delete('/permisos/:usuarioAdminId', requireRole('admin'), async (req, res) => {
+router.delete('/permisos/:usuarioAdminId', requireModulo('inventario', 'edicion'), async (req, res) => {
   await query(
     `DELETE FROM permisos_especiales WHERE usuario_admin_id = $1 AND permiso = 'cambiar_nivel_activo_inventario'`,
     [req.params.usuarioAdminId]
