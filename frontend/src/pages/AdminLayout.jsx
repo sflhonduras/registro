@@ -17,12 +17,7 @@ const enlaces = [
   { to: '/admin/mantenimiento', label: 'Mantenimiento', icon: '🛠️', soloSuperAdmin: true },
 ];
 
-// Paquetes fijos de los roles que no se configuran módulo por módulo — deben coincidir
-// exactamente con lo que ya define auth.js en el backend, para que el menú no muestre algo
-// que la API luego va a rechazar.
-const MODULOS_CONSULTA_FIJO = ['estadisticas', 'reportes', 'inventario', 'transporte'];
-const PRESET_ESTANDAR = new Set(['servidores', 'inventario', 'transporte']);
-const PRESET_REGISTRO = new Set(['participantes', 'diplomas', 'inventario']);
+// Etiquetas para mostrar el rol en la barra lateral.
 
 const ETIQUETA_ROL = {
   super_admin: 'Super Administrador',
@@ -48,7 +43,7 @@ export default function AdminLayout() {
   }, []);
 
   useEffect(() => {
-    if (usuario?.rol === 'admin') {
+    if (usuario?.rol && usuario.rol !== 'super_admin' && usuario.rol !== 'cocina') {
       api.get('/admin/mis-permisos').then(r => setMisModulos(new Set(r.data.map(p => p.modulo)))).catch(() => setMisModulos(new Set()));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,12 +53,9 @@ export default function AdminLayout() {
     const rol = usuario?.rol;
     if (l.soloSuperAdmin) return rol === 'super_admin';
     if (rol === 'super_admin') return true;
+    if (rol === 'cocina') return false;
     if (!l.modulo) return true;
-    if (rol === 'consulta') return MODULOS_CONSULTA_FIJO.includes(l.modulo);
-    if (rol === 'estandar') return PRESET_ESTANDAR.has(l.modulo);
-    if (rol === 'registro') return PRESET_REGISTRO.has(l.modulo);
-    if (rol === 'admin') return misModulos ? misModulos.has(l.modulo) : false;
-    return false;
+    return misModulos ? misModulos.has(l.modulo) : false;
   };
   const enlacesVisibles = enlaces.filter(puedeVer);
 

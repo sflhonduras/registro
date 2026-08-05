@@ -211,7 +211,7 @@ function PanelExportarContacto() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/admin/estadisticas').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
+    api.get('/admin/evento-actual-resumen').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
   }, []);
 
   const descargar = async () => {
@@ -298,7 +298,19 @@ function PanelExportarContacto() {
 
 export default function AdminParticipantes() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
+  const [nivelParticipantes, setNivelParticipantes] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
+  const [puedeMarcarPresencial, setPuedeMarcarPresencial] = useState(usuario?.rol === 'super_admin');
+  const soloLectura = nivelParticipantes !== 'edicion';
+
+  useEffect(() => {
+    if (usuario?.rol === 'super_admin' || usuario?.rol === 'cocina') return;
+    api.get('/admin/mis-permisos').then(r => {
+      const permisoParticipantes = r.data.find(p => p.modulo === 'participantes');
+      const permisoPresencial = r.data.find(p => p.modulo === 'participantes_presencial');
+      setNivelParticipantes(permisoParticipantes ? permisoParticipantes.nivel : 'consulta');
+      setPuedeMarcarPresencial(permisoParticipantes?.nivel === 'edicion' || permisoPresencial?.nivel === 'edicion');
+    }).catch(() => setNivelParticipantes('consulta'));
+  }, []);
 
   const [pestana, setPestana] = useState('actual'); // 'actual' | 'todos'
   const [eventoActual, setEventoActual] = useState(null);
@@ -311,7 +323,7 @@ export default function AdminParticipantes() {
   const [cargando, setCargando] = useState(false);
 
   useEffect(() => {
-    api.get('/admin/estadisticas').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
+    api.get('/admin/evento-actual-resumen').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
   }, []);
 
   const cargar = useCallback(() => {
@@ -444,7 +456,7 @@ function imprimirEtiqueta(nombreCompleto) {
   };
 
   const toggleRegistradoPresencial = async (p) => {
-    if (soloLectura || !eventoParaColumna) return;
+    if (!puedeMarcarPresencial || !eventoParaColumna) return;
     const nuevoValor = !p.registrado_presencial;
     await api.put(`/admin/participantes/${p.id}/inscripciones/${eventoParaColumna}/presencial`, {
       registrado_presencial: nuevoValor
@@ -557,7 +569,7 @@ function imprimirEtiqueta(nombreCompleto) {
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"
-                      disabled={soloLectura}
+                      disabled={!puedeMarcarPresencial}
                       checked={!!p.registrado_presencial}
                       onChange={() => toggleRegistradoPresencial(p)}
                       className="h-4 w-4 cursor-pointer accent-palm"

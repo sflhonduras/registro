@@ -19,14 +19,111 @@ const COLOR_ROL = {
   consulta: 'bg-ink/10 text-ink/60'
 };
 
-// Descripción fija para los roles que NO se configuran módulo por módulo — son paquetes
-// iguales para todos los que tengan ese rol.
-const DESCRIPCION_FIJA = {
-  estandar: 'Servidores SFL (solo ver) · Inventario (editar) · Transporte (editar)',
-  registro: 'Participantes (checkbox "Registrado" e "Imprimir etiqueta") · Diplomas (descargar Excel/PDF) · Inventario (completo)'
+const ETIQUETA_NIVEL = { consulta: 'Consulta (solo ver)', edicion: 'Edición (ver y modificar)' };
+
+// Roles asignables — "Super Administrador" nunca aparece como opción (solo Carlos lo tiene).
+// Todos estos roles ahora usan permisos configurables módulo por módulo (excepto Cocina, que
+// tiene su propia pantalla dedicada y no usa el sistema de módulos).
+const ROLES_EDITABLES = [
+  { valor: 'registro', etiqueta: 'Registro' },
+  { valor: 'consulta', etiqueta: 'Consulta' },
+  { valor: 'cocina', etiqueta: 'Cocina' },
+  { valor: 'estandar', etiqueta: 'Usuario Estándar' },
+  { valor: 'admin', etiqueta: 'Administrador' }
+];
+
+const DESCRIPCION_ROL = {
+  consulta: 'Tú le configuras, módulo por módulo, qué puede ver.',
+  admin: 'Tú le configuras, módulo por módulo, qué ve o edita.',
+  cocina: 'Solo ve el resumen de asistentes — no usa módulos.',
+  estandar: 'Tú le configuras, módulo por módulo, qué ve o edita.',
+  registro: 'Tú le configuras, módulo por módulo, qué ve o edita.'
 };
 
-const ETIQUETA_NIVEL = { consulta: 'Consulta (solo ver)', edicion: 'Edición (ver y modificar)' };
+function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
+  const esSuperAdmin = usuario.rol === 'super_admin';
+  const [nombre, setNombre] = useState(usuario.nombre);
+  const [rol, setRol] = useState(usuario.rol);
+  const [activo, setActivo] = useState(usuario.activo);
+  const [password, setPassword] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState('');
+
+  const guardar = async () => {
+    if (password && password.trim().length > 0 && password.trim().length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres, o déjala en blanco para no cambiarla.');
+      return;
+    }
+    setGuardando(true); setError('');
+    try {
+      const cuerpo = { nombre, activo };
+      if (!esSuperAdmin) cuerpo.rol = rol;
+      if (password.trim()) cuerpo.password = password.trim();
+      await api.put(`/admin/usuarios/${usuario.id}`, cuerpo);
+      const rolCambio = !esSuperAdmin && rol !== 'cocina' && rol !== usuario.rol;
+      onGuardado(rolCambio);
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <p className="font-display text-lg font-bold text-ink">Editar usuario</p>
+        <p className="mt-1 text-xs text-ink/50">{usuario.email}</p>
+
+        <div className="mt-4 space-y-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/60">Nombre</span>
+            <input value={nombre} onChange={e => setNombre(e.target.value)} className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm" />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/60">Rol</span>
+            {esSuperAdmin ? (
+              <p className="rounded-lg bg-ink/5 px-3 py-2 text-sm text-ink/50">Super Administrador (no se puede cambiar)</p>
+            ) : (
+              <>
+                <select value={rol} onChange={e => setRol(e.target.value)} className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm">
+                  {ROLES_EDITABLES.map(r => <option key={r.valor} value={r.valor}>{r.etiqueta}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-ink/40">{DESCRIPCION_ROL[rol]}</p>
+              </>
+            )}
+          </label>
+
+          {!esSuperAdmin && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={activo} onChange={e => setActivo(e.target.checked)} />
+              <span className="text-ink/70">Usuario activo</span>
+            </label>
+          )}
+
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/60">Nueva contraseña (opcional)</span>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Dejar en blanco para no cambiarla"
+              className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm" />
+          </label>
+        </div>
+
+        {error && <p className="mt-3 rounded-lg bg-ember/10 p-2 text-xs text-ember">{error}</p>}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={() => onCerrar()} className="rounded-full border border-ink/15 px-4 py-2 text-sm text-ink/60 hover:bg-ink/5">
+            Cancelar
+          </button>
+          <button onClick={guardar} disabled={guardando}
+            className="rounded-full bg-gold px-5 py-2 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
+            {guardando ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function PanelPermisos({ usuario, modulos, onCerrar }) {
   const [permisos, setPermisos] = useState({});
@@ -62,7 +159,7 @@ function PanelPermisos({ usuario, modulos, onCerrar }) {
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
         <p className="font-display text-lg font-bold text-ink">Permisos de {usuario.nombre}</p>
         <p className="mt-1 text-xs text-ink/50">
-          Elige, módulo por módulo, si este Administrador puede solo ver, o también editar. Si dejas "Sin acceso", no le va a
+          Elige, módulo por módulo, si {usuario.nombre} puede solo ver, o también editar. Si dejas "Sin acceso", no le va a
           aparecer esa sección en el panel. Usuarios, Auditoría y Mantenimiento nunca aparecen aquí — esas son exclusivas
           del Super Administrador.
         </p>
@@ -111,6 +208,7 @@ export default function AdminUsuarios() {
   const [error, setError] = useState('');
   const [creando, setCreando] = useState(false);
   const [usuarioPermisos, setUsuarioPermisos] = useState(null);
+  const [usuarioEditando, setUsuarioEditando] = useState(null);
 
   const cargar = () => api.get('/admin/usuarios').then(r => setUsuarios(r.data));
   useEffect(() => {
@@ -126,15 +224,12 @@ export default function AdminUsuarios() {
       const rolCreado = form.rol;
       setForm({ nombre: '', email: '', password: '', rol: 'consulta' });
       cargar();
-      if (rolCreado === 'admin' && nuevoUsuario?.id) {
+      // Cocina no usa módulos (tiene su propia pantalla dedicada) — para cualquier otro rol,
+      // hay que asignarle sus módulos de una vez o se queda sin acceso a nada.
+      if (rolCreado !== 'cocina' && nuevoUsuario?.id) {
         setUsuarioPermisos({ id: nuevoUsuario.id, nombre: nuevoUsuario.nombre });
       }
     } catch (err) { setError(mensajeError(err)); } finally { setCreando(false); }
-  };
-
-  const toggleActivo = async (u) => {
-    await api.put(`/admin/usuarios/${u.id}`, { activo: !u.activo });
-    cargar();
   };
 
   const eliminar = async (u) => {
@@ -143,15 +238,12 @@ export default function AdminUsuarios() {
     cargar();
   };
 
-  const cambiarContrasena = async (u) => {
-    const nueva = prompt(`Nueva contraseña para ${u.email} (mínimo 6 caracteres):`);
-    if (nueva === null) return;
-    if (nueva.trim().length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
-    try {
-      await api.put(`/admin/usuarios/${u.id}`, { password: nueva.trim() });
-      alert(`Contraseña de ${u.email} actualizada correctamente.`);
-    } catch (err) {
-      alert(mensajeError(err));
+  const cerrarEdicion = (rolCambio) => {
+    const usuarioEditado = usuarioEditando;
+    setUsuarioEditando(null);
+    cargar();
+    if (rolCambio && usuarioEditado) {
+      setUsuarioPermisos({ id: usuarioEditado.id, nombre: usuarioEditado.nombre });
     }
   };
 
@@ -159,45 +251,46 @@ export default function AdminUsuarios() {
     <div>
       <h1 className="font-display text-2xl font-bold text-ink">Usuarios del panel</h1>
       <p className="text-sm text-ink/50">
-        El <strong>Super Administrador</strong> tiene control total, incluyendo Usuarios, Auditoría y Mantenimiento. Los
-        <strong> Administradores</strong> ven o editan solo los módulos que el Super Administrador les habilite. <strong>Consulta</strong>,
-        {' '}<strong>Estándar</strong> y <strong>Registro</strong> son paquetes fijos, iguales para todos los que tengan ese rol.
+        El <strong>Super Administrador</strong> tiene control total, incluyendo Usuarios, Auditoría y Mantenimiento.
+        Para cualquier otro rol, tú configuras módulo por módulo qué puede ver o editar cada persona con el botón
+        {' '}<strong>"Permisos"</strong>. <strong>Cocina</strong> es la única excepción — tiene su propia pantalla dedicada y no usa módulos.
       </p>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <form onSubmit={crear} className="space-y-3 rounded-2xl border border-ink/10 bg-white p-5 shadow-sm lg:col-span-1">
-          <p className="font-semibold text-ink">Nuevo usuario</p>
-          <input required placeholder="Nombre" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
-            value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} />
-          <input required type="email" placeholder="Correo electrónico" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
-            value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-          <input required type="password" placeholder="Contraseña" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
-            value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
-          <select className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
-            value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
-            <option value="consulta">Consulta (Estadísticas/Reportería/Inventario/Transporte, solo ver)</option>
-            <option value="admin">Administrador (tú le configuras qué módulos ve o edita)</option>
-            <option value="cocina">Cocina (solo ve el resumen de asistentes)</option>
-            <option value="estandar">Usuario Estándar (Servidores-ver, Inventario/Transporte-editar)</option>
-            <option value="registro">Registro (checkboxes de Participantes, Diplomas, Inventario completo)</option>
-          </select>
-          {form.rol === 'admin' && (
-            <p className="rounded-lg bg-gold/10 p-2 text-xs text-ink/60">
-              Al crear el usuario, te voy a pedir de una vez qué módulos puede ver o editar — si no, no tendrá acceso a nada todavía.
-            </p>
-          )}
-          {(form.rol === 'estandar' || form.rol === 'registro') && (
-            <p className="rounded-lg bg-gold/10 p-2 text-xs text-ink/60">
-              Este rol trae un paquete de permisos fijo: {DESCRIPCION_FIJA[form.rol]}
-            </p>
-          )}
-          {error && <p className="rounded-lg bg-ember/10 p-2 text-xs text-ember">{error}</p>}
-          <button disabled={creando} className="w-full rounded-full bg-gold py-2 text-sm font-semibold text-night hover:bg-gold-light">
-            {creando ? 'Creando…' : 'Crear usuario'}
-          </button>
+      <div className="mt-6 space-y-6">
+        <form onSubmit={crear} className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+          <p className="mb-3 font-semibold text-ink">Nuevo usuario</p>
+          <div className="flex flex-wrap items-start gap-3">
+            <label className="min-w-[160px] flex-1 text-sm">
+              <span className="mb-1 block text-ink/60">Nombre</span>
+              <input required placeholder="Nombre completo" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+                value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} />
+            </label>
+            <label className="min-w-[200px] flex-1 text-sm">
+              <span className="mb-1 block text-ink/60">Correo electrónico</span>
+              <input required type="email" placeholder="correo@ejemplo.com" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+                value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </label>
+            <label className="min-w-[160px] flex-1 text-sm">
+              <span className="mb-1 block text-ink/60">Contraseña</span>
+              <input required type="password" placeholder="Contraseña" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+                value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+            </label>
+            <label className="min-w-[180px] flex-1 text-sm">
+              <span className="mb-1 block text-ink/60">Rol</span>
+              <select className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+                value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
+                {ROLES_EDITABLES.map(r => <option key={r.valor} value={r.valor}>{r.etiqueta}</option>)}
+              </select>
+            </label>
+            <button disabled={creando} className="rounded-full bg-gold px-6 py-2.5 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
+              {creando ? 'Creando…' : 'Crear usuario'}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-ink/40">{DESCRIPCION_ROL[form.rol]}</p>
+          {error && <p className="mt-2 rounded-lg bg-ember/10 p-2 text-xs text-ember">{error}</p>}
         </form>
 
-        <div className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm lg:col-span-2">
+        <div className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
           <table className="w-full text-left text-sm">
             <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
               <tr><th className="px-4 py-3">Nombre</th><th className="px-4 py-3">Correo</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3 text-right">Acciones</th></tr>
@@ -211,16 +304,12 @@ export default function AdminUsuarios() {
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${COLOR_ROL[u.rol] || 'bg-ink/10 text-ink/60'}`}>
                       {ETIQUETA_ROL[u.rol] || u.rol}
                     </span>
-                    {DESCRIPCION_FIJA[u.rol] && (
-                      <p className="mt-1 text-[11px] text-ink/40">{DESCRIPCION_FIJA[u.rol]}</p>
-                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {u.rol === 'admin' && (
+                    {u.rol !== 'super_admin' && u.rol !== 'cocina' && (
                       <button onClick={() => setUsuarioPermisos(u)} className="text-gold hover:underline">Permisos</button>
                     )}
-                    <button onClick={() => cambiarContrasena(u)} className="ml-3 text-ink/60 hover:underline">Cambiar contraseña</button>
-                    <button onClick={() => toggleActivo(u)} className="ml-3 text-gold hover:underline">{u.activo ? 'Desactivar' : 'Activar'}</button>
+                    <button onClick={() => setUsuarioEditando(u)} className="ml-3 text-ink/60 hover:underline">Editar</button>
                     {u.rol !== 'super_admin' && (
                       <button onClick={() => eliminar(u)} className="ml-3 text-ember hover:underline">Eliminar</button>
                     )}
@@ -237,6 +326,14 @@ export default function AdminUsuarios() {
           usuario={usuarioPermisos}
           modulos={modulos}
           onCerrar={() => setUsuarioPermisos(null)}
+        />
+      )}
+
+      {usuarioEditando && (
+        <ModalEditarUsuario
+          usuario={usuarioEditando}
+          onCerrar={() => setUsuarioEditando(null)}
+          onGuardado={cerrarEdicion}
         />
       )}
     </div>

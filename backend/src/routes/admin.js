@@ -448,13 +448,16 @@ router.delete('/usuarios/:id', requireSuperAdmin, async (req, res) => {
   res.json({ mensaje: 'Usuario eliminado.' });
 });
 
-// Lista de módulos que aparecen en el panel de permisos del rol "Administrador" (configurable
-// por el Super Administrador). Los 12 módulos del sistema existen, pero Usuarios, Auditoría y
-// Mantenimiento NUNCA aparecen aquí — esas tres pantallas quedan exclusivas del Super
-// Administrador siempre, sin excepción ni configuración posible.
+// Lista de módulos que se pueden asignar, módulo por módulo, a CUALQUIER usuario (sin
+// importar su rol) desde el panel de permisos. Los 12 módulos del sistema existen, pero
+// Usuarios, Auditoría y Mantenimiento NUNCA aparecen aquí — esas tres pantallas quedan
+// exclusivas del Super Administrador siempre, sin excepción ni configuración posible.
+// "Registrado (checkbox)" es un permiso especial y puntual: solo controla el checkbox de
+// asistencia presencial en Participantes, sin dar edición sobre el resto de sus datos.
 const MODULOS_CON_PERMISOS = [
   { clave: 'estadisticas', etiqueta: 'Estadísticas', activo: true },
   { clave: 'participantes', etiqueta: 'Participantes', activo: true },
+  { clave: 'participantes_presencial', etiqueta: 'Registrado (checkbox de asistencia)', activo: true },
   { clave: 'diplomas', etiqueta: 'Diplomas', activo: true },
   { clave: 'reportes', etiqueta: 'Reportería', activo: true },
   { clave: 'medallas', etiqueta: 'Medallas', activo: true },

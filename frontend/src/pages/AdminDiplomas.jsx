@@ -9,7 +9,7 @@ export default function AdminDiplomas() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/admin/estadisticas').then(r => {
+    api.get('/admin/evento-actual-resumen').then(r => {
       const actual = r.data.evento_actual;
       setEventoActual(actual);
       if (!actual) { setCargando(false); return; }

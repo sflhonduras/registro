@@ -117,7 +117,16 @@ function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuar
 
 export default function AdminTransporte() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
+  const [nivelTransporte, setNivelTransporte] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
+  const soloLectura = nivelTransporte !== 'edicion';
+
+  useEffect(() => {
+    if (usuario?.rol === 'super_admin' || usuario?.rol === 'cocina') return;
+    api.get('/admin/mis-permisos').then(r => {
+      const permiso = r.data.find(p => p.modulo === 'transporte');
+      setNivelTransporte(permiso ? permiso.nivel : 'consulta');
+    }).catch(() => setNivelTransporte('consulta'));
+  }, []);
 
   const [evento, setEvento] = useState(null);
   const [transportes, setTransportes] = useState([]);
@@ -134,7 +143,7 @@ export default function AdminTransporte() {
     try {
       const [tRes, sRes, tvRes] = await Promise.all([
         api.get('/admin/transporte/transportes'),
-        api.get('/admin/servidores'),
+        api.get('/admin/servidores').catch(() => ({ data: [] })),
         api.get('/admin/transporte/tipos-vehiculo')
       ]);
       setEvento(tRes.data.evento);

@@ -171,7 +171,16 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
 
 export default function AdminServidores() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
+  const [nivelServidores, setNivelServidores] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
+  const soloLectura = nivelServidores !== 'edicion';
+
+  useEffect(() => {
+    if (usuario?.rol === 'super_admin' || usuario?.rol === 'cocina') return;
+    api.get('/admin/mis-permisos').then(r => {
+      const permiso = r.data.find(p => p.modulo === 'servidores');
+      setNivelServidores(permiso ? permiso.nivel : 'consulta');
+    }).catch(() => setNivelServidores('consulta'));
+  }, []);
 
   const [servidores, setServidores] = useState([]);
   const [cargando, setCargando] = useState(true);

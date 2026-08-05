@@ -200,7 +200,16 @@ function TarjetaConferencia({ conferencia, servidores, soloLectura, onGuardarRes
 
 export default function AdminInventario() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
+  const [nivelInventario, setNivelInventario] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
+  const soloLectura = nivelInventario !== 'edicion';
+
+  useEffect(() => {
+    if (usuario?.rol === 'super_admin' || usuario?.rol === 'cocina') return;
+    api.get('/admin/mis-permisos').then(r => {
+      const permiso = r.data.find(p => p.modulo === 'inventario');
+      setNivelInventario(permiso ? permiso.nivel : 'consulta');
+    }).catch(() => setNivelInventario('consulta'));
+  }, []);
 
   const [categorias, setCategorias] = useState([]);
   const [talleres, setTalleres] = useState({ evento: null, conferencias: [] });
@@ -232,7 +241,7 @@ export default function AdminInventario() {
       const [catRes, tallRes, servRes] = await Promise.all([
         api.get('/admin/inventario/categorias'),
         api.get('/admin/inventario/talleres'),
-        api.get('/admin/servidores')
+        api.get('/admin/servidores').catch(() => ({ data: [] }))
       ]);
       setCategorias(catRes.data.categorias);
       setTalleres(tallRes.data);

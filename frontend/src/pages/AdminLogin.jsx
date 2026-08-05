@@ -2,6 +2,16 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
 
+// Orden de prioridad para decidir dónde aterrizar después de entrar — el primer módulo de
+// esta lista al que la persona tenga acceso es donde la mandamos, en vez de asumir que
+// todos empiezan en Estadísticas (que ya no es cierto ahora que todo es configurable).
+const ORDEN_MODULOS = ['estadisticas', 'participantes', 'diplomas', 'reportes', 'medallas', 'servidores', 'inventario', 'transporte', 'eventos'];
+const RUTA_POR_MODULO = {
+  estadisticas: '/admin/panel', participantes: '/admin/participantes', diplomas: '/admin/diplomas',
+  reportes: '/admin/reportes', medallas: '/admin/medallas', servidores: '/admin/servidores',
+  inventario: '/admin/inventario', transporte: '/admin/transporte', eventos: '/admin/eventos'
+};
+
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,7 +26,18 @@ export default function AdminLogin() {
       const { data } = await api.post('/auth/login', { email, password });
       localStorage.setItem('sfl_token', data.token);
       localStorage.setItem('sfl_user', JSON.stringify(data.usuario));
-      nav(data.usuario.rol === 'cocina' ? '/admin/cocina' : '/admin/panel');
+
+      if (data.usuario.rol === 'cocina') { nav('/admin/cocina'); return; }
+      if (data.usuario.rol === 'super_admin') { nav('/admin/panel'); return; }
+
+      try {
+        const { data: permisos } = await api.get('/admin/mis-permisos');
+        const misModulos = new Set(permisos.map(p => p.modulo));
+        const primerModulo = ORDEN_MODULOS.find(m => misModulos.has(m));
+        nav(primerModulo ? RUTA_POR_MODULO[primerModulo] : '/admin/panel');
+      } catch {
+        nav('/admin/panel');
+      }
     } catch (err) {
       setError(mensajeError(err, 'Correo o contraseña incorrectos.'));
     } finally {
