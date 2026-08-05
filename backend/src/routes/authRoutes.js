@@ -1,10 +1,19 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
-import { signToken, requireAuth } from '../auth.js';
+import { signToken, signTokenTemporal, requireAuth, requireTokenPaso } from '../auth.js';
 import { registrarLogin } from '../auditoria.js';
+import { generarSecreto, generarQR, verificarCodigo } from '../twoFactor.js';
 
 const router = Router();
+
+// Solo el Super Administrador tiene 2FA obligatorio de forma fija en el código (no se puede
+// desactivar desde el panel). Para cualquier otro rol, lo decide el Super Administrador
+// persona por persona, con la columna requiere_2fa — así un Estándar o Consulta con acceso
+// de edición también puede quedar protegido, sin tener que dárselo a todo su rol.
+function requiere2FA(user) {
+  return user.rol === 'super_admin' || user.requiere_2fa === true;
+}
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -17,6 +26,65 @@ router.post('/login', async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'Credenciales inválidas.' });
 
+  // Cuentas que no necesitan 2FA: entran de una vez, igual que siempre.
+  if (!requiere2FA(user)) {
+    const token = signToken(user);
+    await registrarLogin(user.id);
+    return res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+  }
+
+  // Primera vez que esta persona entra desde que existe 2FA: hay que configurarlo antes de
+  // dejarla pasar. El token que se manda aquí es temporal (5 min) y SOLO sirve para el paso
+  // de configuración, no para nada más del panel.
+  if (!user.two_factor_enabled) {
+    const tokenTemporal = signTokenTemporal(user, 'requiere_configurar_2fa');
+    return res.json({ requiere_configurar_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
+  }
+
+  // Ya tiene 2FA activado de antes: pide el código de su app autenticadora.
+  const tokenTemporal = signTokenTemporal(user, 'requiere_codigo_2fa');
+  res.json({ requiere_codigo_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
+});
+
+// GET /api/auth/2fa/qr -> genera (o reutiliza) el secreto y devuelve el QR para escanear.
+router.get('/2fa/qr', requireTokenPaso('requiere_configurar_2fa'), async (req, res) => {
+  const { rows } = await query('SELECT email, two_factor_secret FROM usuarios_admin WHERE id = $1', [req.user.id]);
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+  let secreto = user.two_factor_secret;
+  if (!secreto) {
+    secreto = generarSecreto();
+    await query('UPDATE usuarios_admin SET two_factor_secret = $1 WHERE id = $2', [secreto, req.user.id]);
+  }
+  const qr = await generarQR(user.email, secreto);
+  res.json({ qr });
+});
+
+// POST /api/auth/2fa/confirmar-setup  body: { codigo } -> valida el primer código y activa
+// 2FA de forma definitiva. De aquí en adelante, esta cuenta SIEMPRE va a pedir el código.
+router.post('/2fa/confirmar-setup', requireTokenPaso('requiere_configurar_2fa'), async (req, res) => {
+  const { rows } = await query('SELECT * FROM usuarios_admin WHERE id = $1', [req.user.id]);
+  const user = rows[0];
+  if (!user?.two_factor_secret) return res.status(400).json({ error: 'Primero solicita el código QR.' });
+  if (!(await verificarCodigo(req.body?.codigo, user.two_factor_secret))) {
+    return res.status(401).json({ error: 'Código incorrecto. Revisa la hora de tu celular e intenta de nuevo.' });
+  }
+  await query('UPDATE usuarios_admin SET two_factor_enabled = TRUE WHERE id = $1', [user.id]);
+  const token = signToken(user);
+  await registrarLogin(user.id);
+  res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+});
+
+// POST /api/auth/2fa/verificar  body: { codigo } -> el paso normal en cada login posterior,
+// una vez que 2FA ya está activado.
+router.post('/2fa/verificar', requireTokenPaso('requiere_codigo_2fa'), async (req, res) => {
+  const { rows } = await query('SELECT * FROM usuarios_admin WHERE id = $1', [req.user.id]);
+  const user = rows[0];
+  if (!user?.two_factor_secret) return res.status(400).json({ error: 'Este usuario no tiene 2FA configurado.' });
+  if (!(await verificarCodigo(req.body?.codigo, user.two_factor_secret))) {
+    return res.status(401).json({ error: 'Código incorrecto.' });
+  }
   const token = signToken(user);
   await registrarLogin(user.id);
   res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });

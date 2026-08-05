@@ -5,6 +5,12 @@ import { MUNICIPIOS_POR_DEPARTAMENTO } from '../municipios.js';
 
 const router = Router();
 
+// PIN de 4 dígitos para el portal de autoconsulta — se asigna una sola vez, al inscribirse
+// por primera vez en el Nivel I, y se le muestra a la persona en ese momento.
+function generarPin() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
 // Utilidad: estado de un evento (abierto/cerrado) según fecha límite + flag activo
 function estadoEvento(ev) {
   const ahora = new Date();
@@ -149,6 +155,7 @@ router.post('/registro/evento1', async (req, res) => {
   const existente = existenteRes.rows[0];
 
   let participanteId;
+  let pinAsignado = null;
 
   if (!existente) {
     // Participante nuevo: se validan todos los campos y se crea su registro.
@@ -157,6 +164,7 @@ router.post('/registro/evento1', async (req, res) => {
 
     const celular = soloDigitos(b.celular);
     const telefonoEmergencia = soloDigitos(b.contacto_emergencia_telefono);
+    const pinNuevo = generarPin();
     // ON CONFLICT (dni) DO NOTHING: si dos peticiones con el mismo DNI llegan casi a la vez
     // (doble clic, reintento por mala conexión), solo una crea el registro; la otra lo detecta
     // abajo y reutiliza el mismo participante en vez de fallar o duplicar.
@@ -164,8 +172,8 @@ router.post('/registro/evento1', async (req, res) => {
       `INSERT INTO participantes
         (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec,
          estado_civil, hijos_cantidad, comparte_testimonio, tiempo_comparte_testimonio,
-         ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion, pin)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        ON CONFLICT (dni) DO NOTHING
        RETURNING id`,
       [
@@ -174,11 +182,12 @@ router.post('/registro/evento1', async (req, res) => {
         parseInt(b.hijos_cantidad, 10), b.comparte_testimonio,
         b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
         b.ha_recibido_sael, b.ha_recibido_sael === 'Si' ? parseInt(b.cantidad_saeles, 10) : null,
-        normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null
+        normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null, pinNuevo
       ]
     );
     if (insertParticipante.rows[0]) {
       participanteId = insertParticipante.rows[0].id;
+      pinAsignado = pinNuevo;
     } else {
       const yaExiste = await query('SELECT id FROM participantes WHERE dni = $1', [dni]);
       participanteId = yaExiste.rows[0].id;
@@ -222,7 +231,8 @@ router.post('/registro/evento1', async (req, res) => {
     mensaje: existente
       ? (b.actualizar_datos === true ? 'Tus datos fueron actualizados y tu registro quedó confirmado.' : 'Tu registro quedó confirmado.')
       : 'Registro completado. ¡Bienvenido al SFL Nivel I!',
-    participante_id: participanteId
+    participante_id: participanteId,
+    pin: pinAsignado
   });
 });
 

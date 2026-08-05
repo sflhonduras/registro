@@ -402,7 +402,7 @@ router.get('/estadisticas/excel', requireModulo('estadisticas', 'consulta'), asy
 /* ---------------------------- USUARIOS ADMIN ----------------------------- */
 
 router.get('/usuarios', requireSuperAdmin, async (req, res) => {
-  const { rows } = await query('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios_admin ORDER BY id');
+  const { rows } = await query('SELECT id, nombre, email, rol, activo, requiere_2fa, two_factor_enabled, creado_en FROM usuarios_admin ORDER BY id');
   res.json(rows);
 });
 
@@ -424,21 +424,33 @@ router.post('/usuarios', requireSuperAdmin, async (req, res) => {
 });
 
 router.put('/usuarios/:id', requireSuperAdmin, async (req, res) => {
-  const { nombre, rol, activo, password } = req.body || {};
+  const { nombre, rol, activo, password, requiere_2fa } = req.body || {};
   const sets = [];
   const vals = [];
   if (nombre !== undefined) { vals.push(nombre); sets.push(`nombre = $${vals.length}`); }
   if (rol !== undefined) { vals.push(rol); sets.push(`rol = $${vals.length}`); }
   if (activo !== undefined) { vals.push(activo); sets.push(`activo = $${vals.length}`); }
   if (password) { vals.push(await bcrypt.hash(password, 10)); sets.push(`password_hash = $${vals.length}`); }
+  if (requiere_2fa !== undefined) { vals.push(requiere_2fa); sets.push(`requiere_2fa = $${vals.length}`); }
   if (!sets.length) return res.status(400).json({ error: 'Nada para actualizar.' });
   vals.push(req.params.id);
   const { rows } = await query(
-    `UPDATE usuarios_admin SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING id, nombre, email, rol, activo`,
+    `UPDATE usuarios_admin SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING id, nombre, email, rol, activo, requiere_2fa, two_factor_enabled`,
     vals
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado.' });
   res.json(rows[0]);
+});
+
+// POST /api/admin/usuarios/:id/resetear-2fa -> por si alguien pierde el celular: borra su
+// secreto y lo desactiva, para que la próxima vez que entre tenga que escanear un QR nuevo.
+router.post('/usuarios/:id/resetear-2fa', requireSuperAdmin, async (req, res) => {
+  const { rowCount } = await query(
+    'UPDATE usuarios_admin SET two_factor_secret = NULL, two_factor_enabled = FALSE WHERE id = $1',
+    [req.params.id]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'Usuario no encontrado.' });
+  res.json({ mensaje: 'Se reinició el 2FA de este usuario. La próxima vez que entre, va a tener que configurarlo de nuevo.' });
 });
 
 router.delete('/usuarios/:id', requireSuperAdmin, async (req, res) => {

@@ -16,6 +16,7 @@ import inventarioRoutes from './routes/inventario.js';
 import transporteRoutes from './routes/transporte.js';
 import auditoriaRoutes from './routes/auditoriaRoutes.js';
 import medallasManualesRoutes from './routes/medallasManuales.js';
+import autoconsultaRoutes from './routes/autoconsulta.js';
 import { auditoriaMiddleware } from './auditoria.js';
 
 // Red de seguridad: si algo se escapa igual, se registra pero NO se cae el servidor.
@@ -40,6 +41,10 @@ app.use(auditoriaMiddleware);
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
 app.use('/api/registro', limiter);
 app.use('/api/auth/login', rateLimit({ windowMs: 60 * 1000, max: 10 }));
+// El PIN es de solo 4 dígitos (10,000 combinaciones) — sin este límite, alguien podría
+// intentar adivinarlo a la fuerza probando muchas combinaciones seguidas.
+app.use('/api/autoconsulta/consultar', rateLimit({ windowMs: 60 * 1000, max: 10 }));
+app.use('/api/autoconsulta/cambiar-pin', rateLimit({ windowMs: 60 * 1000, max: 10 }));
 
 app.get('/api/salud', (req, res) => res.json({ ok: true, servicio: 'SFL FIHNEC API' }));
 
@@ -54,6 +59,7 @@ app.use('/api/admin/inventario', inventarioRoutes);
 app.use('/api/admin/transporte', transporteRoutes);
 app.use('/api/admin/auditoria', auditoriaRoutes);
 app.use('/api/admin/medallas-manuales', medallasManualesRoutes);
+app.use('/api/autoconsulta', autoconsultaRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

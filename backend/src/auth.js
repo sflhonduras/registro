@@ -5,11 +5,23 @@ import { query } from './db.js';
 
 const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 
+// Los tokens normales llevan paso:'completo'. Los tokens temporales del flujo de 2FA (5
+// minutos de vida) llevan un paso distinto y SOLO sirven para las rutas de /auth/2fa/*,
+// nunca para el resto del panel — así, aunque alguien intercepte uno, no puede usarlo para
+// nada más que terminar de iniciar sesión.
 export function signToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, rol: user.rol, nombre: user.nombre },
+    { id: user.id, email: user.email, rol: user.rol, nombre: user.nombre, paso: 'completo' },
     SECRET,
     { expiresIn: '12h' }
+  );
+}
+
+export function signTokenTemporal(user, paso) {
+  return jwt.sign(
+    { id: user.id, email: user.email, rol: user.rol, nombre: user.nombre, paso },
+    SECRET,
+    { expiresIn: '5m' }
   );
 }
 
@@ -18,11 +30,38 @@ export function requireAuth(req, res, next) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'No autorizado. Falta token.' });
   try {
-    req.user = jwt.verify(token, SECRET);
+    const payload = jwt.verify(token, SECRET);
+    // Tokens temporales de 2FA (paso distinto de 'completo') nunca pasan aquí. Un token
+    // viejo sin el campo 'paso' (emitido antes de este cambio) se trata como completo, para
+    // no cerrarle la sesión a nadie que ya estaba conectado el día del despliegue.
+    if (payload.paso && payload.paso !== 'completo') {
+      return res.status(401).json({ error: 'Sesión inválida o expirada.' });
+    }
+    req.user = payload;
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Sesión inválida o expirada.' });
   }
+}
+
+// Exige específicamente un token temporal del paso indicado ('requiere_configurar_2fa' o
+// 'requiere_codigo_2fa') — lo usan solo las rutas de /auth/2fa/*.
+export function requireTokenPaso(pasoEsperado) {
+  return (req, res, next) => {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'No autorizado. Falta token.' });
+    try {
+      const payload = jwt.verify(token, SECRET);
+      if (payload.paso !== pasoEsperado) {
+        return res.status(403).json({ error: 'Token no válido para este paso. Vuelve a iniciar sesión.' });
+      }
+      req.user = payload;
+      next();
+    } catch (e) {
+      return res.status(401).json({ error: 'Sesión inválida o expirada. Vuelve a iniciar sesión.' });
+    }
+  };
 }
 
 // Se mantiene por compatibilidad con rutas que todavía la usan tal cual.
