@@ -55,6 +55,12 @@ export default function Home() {
               etiqueta={`Cierre de inscripción · ${proximoCierre.nombre}`}
             />
           )}
+
+          <div className="mt-6 text-center">
+            <Link to="/autoconsulta" className="text-sm font-semibold text-parchment/60 underline decoration-parchment/30 underline-offset-4 transition hover:text-parchment">
+              Consulta tu información
+            </Link>
+          </div>
         </div>
       </section>
 

@@ -46,7 +46,9 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
   const [rol, setRol] = useState(usuario.rol);
   const [activo, setActivo] = useState(usuario.activo);
   const [password, setPassword] = useState('');
+  const [requiere2fa, setRequiere2fa] = useState(esSuperAdmin ? true : !!usuario.requiere_2fa);
   const [guardando, setGuardando] = useState(false);
+  const [reiniciando2fa, setReiniciando2fa] = useState(false);
   const [error, setError] = useState('');
 
   const guardar = async () => {
@@ -57,7 +59,7 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
     setGuardando(true); setError('');
     try {
       const cuerpo = { nombre, activo };
-      if (!esSuperAdmin) cuerpo.rol = rol;
+      if (!esSuperAdmin) { cuerpo.rol = rol; cuerpo.requiere_2fa = requiere2fa; }
       if (password.trim()) cuerpo.password = password.trim();
       await api.put(`/admin/usuarios/${usuario.id}`, cuerpo);
       const rolCambio = !esSuperAdmin && rol !== 'cocina' && rol !== usuario.rol;
@@ -66,6 +68,19 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
       setError(mensajeError(err));
     } finally {
       setGuardando(false);
+    }
+  };
+
+  const reiniciar2fa = async () => {
+    if (!confirm(`¿Reiniciar el 2FA de ${usuario.nombre}? La próxima vez que entre, va a tener que escanear un código QR nuevo (útil si perdió el celular).`)) return;
+    setReiniciando2fa(true); setError('');
+    try {
+      await api.post(`/admin/usuarios/${usuario.id}/resetear-2fa`);
+      alert('2FA reiniciado. La próxima vez que esta persona entre, va a configurar uno nuevo.');
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setReiniciando2fa(false);
     }
   };
 
@@ -101,6 +116,36 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
               <span className="text-ink/70">Usuario activo</span>
             </label>
           )}
+
+          <div className="rounded-xl border border-ink/10 bg-parchment-2 p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={requiere2fa}
+                disabled={esSuperAdmin}
+                onChange={e => setRequiere2fa(e.target.checked)}
+              />
+              <span className="font-medium text-ink/70">Requiere doble autenticación (2FA)</span>
+            </label>
+            <p className="mt-1 text-xs text-ink/40">
+              {esSuperAdmin
+                ? 'El Super Administrador siempre la tiene activa, no se puede quitar.'
+                : 'Actívalo para cualquier persona que pueda editar datos sensibles, sin importar su rol.'}
+            </p>
+
+            {usuario.two_factor_enabled && (
+              <div className="mt-2 flex items-center justify-between border-t border-ink/10 pt-2">
+                <span className="text-xs text-palm">✓ Ya lo configuró</span>
+                <button type="button" onClick={reiniciar2fa} disabled={reiniciando2fa}
+                  className="text-xs text-ember/70 hover:text-ember hover:underline disabled:opacity-50">
+                  {reiniciando2fa ? 'Reiniciando…' : 'Reiniciar (perdió el celular)'}
+                </button>
+              </div>
+            )}
+            {!usuario.two_factor_enabled && (requiere2fa || esSuperAdmin) && (
+              <p className="mt-2 border-t border-ink/10 pt-2 text-xs text-ink/40">Aún no lo ha configurado — se lo va a pedir en su próximo inicio de sesión.</p>
+            )}
+          </div>
 
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Nueva contraseña (opcional)</span>
@@ -304,6 +349,11 @@ export default function AdminUsuarios() {
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${COLOR_ROL[u.rol] || 'bg-ink/10 text-ink/60'}`}>
                       {ETIQUETA_ROL[u.rol] || u.rol}
                     </span>
+                    {(u.rol === 'super_admin' || u.requiere_2fa) && (
+                      <span className={`ml-2 text-xs ${u.two_factor_enabled ? 'text-palm' : 'text-ember/70'}`} title={u.two_factor_enabled ? '2FA activado' : '2FA pendiente de configurar'}>
+                        {u.two_factor_enabled ? '🔒 2FA' : '🔓 2FA pendiente'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {u.rol !== 'super_admin' && u.rol !== 'cocina' && (

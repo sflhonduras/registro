@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { mensajeError } from '../api';
 
 const CAMPOS = [
-  ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['celular', 'Celular'],
+  ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['pin', 'PIN (4 dígitos)'], ['celular', 'Celular'],
   ['capitulo', 'Capítulo'], ['zona', 'Zona'], ['departamento', 'Departamento'], ['municipio', 'Municipio'],
   ['cargo_fihnec', 'Cargo en FIHNEC'], ['estado_civil', 'Estado civil'], ['hijos_cantidad', 'Hijos'],
   ['observacion', 'Observación']
@@ -61,9 +61,13 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
               <span className="mb-1 block text-ink/60">{etiqueta}</span>
               <input
                 disabled={soloLectura}
+                inputMode={campo === 'pin' ? 'numeric' : undefined}
                 className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
                 value={form[campo] ?? ''}
-                onChange={e => setForm(f => ({ ...f, [campo]: e.target.value }))}
+                onChange={e => {
+                  const valor = campo === 'pin' ? e.target.value.replace(/[^\d]/g, '').slice(0, 4) : e.target.value;
+                  setForm(f => ({ ...f, [campo]: valor }));
+                }}
               />
             </label>
           ))}
@@ -296,6 +300,63 @@ function PanelExportarContacto() {
   );
 }
 
+// Abre la cámara del celular (directo en el navegador, sin instalar nada aparte) y lee un
+// código QR. Cuando detecta uno, solo avisa cuál DNI encontró — NO marca "Registrado"
+// automáticamente, para que un escaneo accidental o duplicado no desmarque a nadie por error.
+// El equipo confirma con un clic, igual que si lo hubiera buscado a mano.
+function ModalEscanearQR({ onCerrar, onDetectado }) {
+  const regionId = 'lector-qr-participantes';
+  const scannerRef = useRef(null);
+  const detenidoRef = useRef(false);
+  const [error, setError] = useState('');
+
+  // Evita el error de detener la cámara dos veces (una vez al detectar el código, otra al
+  // cerrarse el modal) — eso era lo que estaba tumbando toda la pantalla.
+  const detenerCamara = async () => {
+    if (detenidoRef.current || !scannerRef.current) return;
+    detenidoRef.current = true;
+    try { await scannerRef.current.stop(); } catch { /* puede que ya estuviera detenida */ }
+    try { scannerRef.current.clear(); } catch { /* nada que limpiar */ }
+  };
+
+  useEffect(() => {
+    let cancelado = false;
+    import('html5-qrcode').then(({ Html5Qrcode }) => {
+      if (cancelado) return;
+      const scanner = new Html5Qrcode(regionId);
+      scannerRef.current = scanner;
+      scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: 250 },
+        async (textoDecodificado) => {
+          await detenerCamara();
+          onDetectado(textoDecodificado);
+        },
+        () => {} // se dispara en cada frame sin QR detectado — no es un error real, se ignora
+      ).catch(() => setError('No se pudo acceder a la cámara. Revisa los permisos del navegador.'));
+    });
+    return () => {
+      cancelado = true;
+      detenerCamara();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <p className="font-display text-lg font-bold text-ink">Escanear QR</p>
+          <button onClick={onCerrar} className="text-ink/40 hover:text-ink">✕</button>
+        </div>
+        <p className="mt-1 text-xs text-ink/50">Apunta la cámara al código QR del participante.</p>
+        {error && <p className="mt-3 rounded-lg bg-ember/10 p-2 text-xs text-ember">{error}</p>}
+        <div id={regionId} className="mt-4 overflow-hidden rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
 export default function AdminParticipantes() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [nivelParticipantes, setNivelParticipantes] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
@@ -316,6 +377,24 @@ export default function AdminParticipantes() {
   const [eventoActual, setEventoActual] = useState(null);
 
   const [buscar, setBuscar] = useState('');
+  const [mostrarEscaner, setMostrarEscaner] = useState(false);
+  const [avisoEscaneo, setAvisoEscaneo] = useState('');
+
+  // El QR codifica "SFL-DNI:12345678901234" — se extrae el DNI y se usa la misma búsqueda
+  // de siempre, para que el equipo vea al participante y confirme con un clic.
+  const procesarEscaneo = (textoDetectado) => {
+    setMostrarEscaner(false);
+    const dniDetectado = String(textoDetectado || '').replace('SFL-DNI:', '').trim();
+    if (!dniDetectado) {
+      setAvisoEscaneo('No se pudo leer ese código — intenta de nuevo.');
+      setTimeout(() => setAvisoEscaneo(''), 4000);
+      return;
+    }
+    setBuscar(dniDetectado);
+    setPagina(1);
+    setAvisoEscaneo(`✓ Encontrado por QR — confirma marcarlo como "Registrado" abajo.`);
+    setTimeout(() => setAvisoEscaneo(''), 6000);
+  };
   const [filtroEvento, setFiltroEvento] = useState('');
   const [pagina, setPagina] = useState(1);
   const [resultado, setResultado] = useState({ datos: [], total: 0, limite: 50 });
@@ -512,12 +591,20 @@ function imprimirEtiqueta(nombreCompleto) {
       </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <input
-          placeholder="Buscar por nombre, DNI o capítulo…"
-          value={buscar}
-          onChange={e => { setBuscar(e.target.value); setPagina(1); }}
-          className="w-full sm:w-80 rounded-lg border border-ink/15 px-3.5 py-2.5 text-sm"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            placeholder="Buscar por nombre, DNI o capítulo…"
+            value={buscar}
+            onChange={e => { setBuscar(e.target.value); setPagina(1); }}
+            className="w-full sm:w-80 rounded-lg border border-ink/15 px-3.5 py-2.5 text-sm"
+          />
+          {puedeMarcarPresencial && (
+            <button type="button" onClick={() => setMostrarEscaner(true)}
+              className="rounded-lg border border-gold/40 bg-gold/10 px-3.5 py-2.5 text-sm font-semibold text-gold hover:bg-gold/20">
+              📷 Escanear QR
+            </button>
+          )}
+        </div>
         {pestana === 'todos' && (
           <select value={filtroEvento} onChange={e => { setFiltroEvento(e.target.value); setPagina(1); }} className="rounded-lg border border-ink/15 px-3 py-2 text-sm">
             <option value="">Todos los niveles</option>
@@ -525,6 +612,7 @@ function imprimirEtiqueta(nombreCompleto) {
           </select>
         )}
       </div>
+      {avisoEscaneo && <p className="mt-2 rounded-lg bg-palm/10 p-2 text-sm text-palm">{avisoEscaneo}</p>}
 
       {pestana === 'actual' && !eventoActual && (
         <p className="mt-5 rounded-lg bg-ember/10 p-4 text-sm text-ember">
@@ -606,6 +694,10 @@ function imprimirEtiqueta(nombreCompleto) {
           onCerrar={() => setSeleccionado(null)}
           onGuardado={(cerrar = true) => { cargar(); if (cerrar) setSeleccionado(null); }}
         />
+      )}
+
+      {mostrarEscaner && (
+        <ModalEscanearQR onCerrar={() => setMostrarEscaner(false)} onDetectado={procesarEscaneo} />
       )}
     </div>
   );

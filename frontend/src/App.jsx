@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import RegistroEvento1 from './pages/RegistroEvento1';
 import RegistroEventoN from './pages/RegistroEventoN';
+import Autoconsulta from './pages/Autoconsulta';
 import AdminLogin from './pages/AdminLogin';
 import AdminLayout from './pages/AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/" element={<PublicShell><Home /></PublicShell>} />
         <Route path="/registro/1" element={<PublicShell><RegistroEvento1 /></PublicShell>} />
         <Route path="/registro/:orden" element={<PublicShell><RegistroEventoN /></PublicShell>} />
+        <Route path="/autoconsulta" element={<PublicShell><Autoconsulta /></PublicShell>} />
 
         <Route path="/admin">
           <Route index element={<AdminLogin />} />

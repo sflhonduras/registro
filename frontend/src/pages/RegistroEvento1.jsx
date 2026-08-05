@@ -65,6 +65,7 @@ export default function RegistroEvento1() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState('');
   const [exito, setExito] = useState(null);
+  const [pinAsignado, setPinAsignado] = useState(null);
   const nav = useNavigate();
 
   useEffect(() => {
@@ -106,6 +107,7 @@ export default function RegistroEvento1() {
     try {
       const r = await api.post('/registro/evento1', { dni: participanteExistente.dni, actualizar_datos: false });
       setExito(r.data.mensaje);
+      setPinAsignado(r.data.pin || null);
     } catch (err) {
       setError(mensajeError(err));
     } finally {
@@ -133,6 +135,7 @@ export default function RegistroEvento1() {
       };
       const r = await api.post('/registro/evento1', payload);
       setExito(r.data.mensaje);
+      setPinAsignado(r.data.pin || null);
     } catch (err) {
       setError(mensajeError(err));
     } finally {
@@ -146,6 +149,19 @@ export default function RegistroEvento1() {
         <p className="text-5xl">🔥</p>
         <h1 className="mt-4 font-display text-2xl font-bold text-ink">{exito}</h1>
         <p className="mt-3 text-ink/60">Guarda tu número de identidad (DNI): lo necesitarás para inscribirte a los siguientes niveles.</p>
+
+        {pinAsignado && (
+          <div className="mt-6 rounded-2xl border border-gold/30 bg-gold/10 p-6">
+            <p className="text-sm font-semibold uppercase tracking-wide text-gold">Tu PIN personal</p>
+            <p className="mt-2 font-display text-4xl font-bold tracking-[0.3em] text-ink">{pinAsignado}</p>
+            <p className="mt-3 text-sm text-ink/60">
+              Junto con tu número de identidad, vas a necesitar este PIN más adelante para consultar tu información,
+              tu código QR de asistencia y tus niveles en el portal de autoconsulta. Guárdalo en un lugar seguro —
+              lo puedes cambiar cuando quieras desde ahí mismo.
+            </p>
+          </div>
+        )}
+
         {evento && <div className="mt-4"><InfoEvento evento={evento} /></div>}
         <PromoWhatsApp />
         <button onClick={() => nav('/')} className="mt-8 rounded-full bg-ink px-6 py-2.5 font-semibold text-parchment hover:bg-ember">
