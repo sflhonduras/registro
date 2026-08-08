@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { requireAuth, requireModulo } from '../auth.js';
+import { guardarEnPapelera } from '../papelera.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -42,6 +43,10 @@ router.post('/', requireModulo('medallas', 'edicion'), async (req, res) => {
 
 // DELETE /api/admin/medallas-manuales/:id
 router.delete('/:id', requireModulo('medallas', 'edicion'), async (req, res) => {
+  const { rows } = await query(
+    `SELECT p.nombre_completo, mm.tipo FROM medallas_manuales mm
+     JOIN participantes p ON p.id = mm.participante_id WHERE mm.id = $1`, [req.params.id]);
+  if (rows[0]) await guardarEnPapelera('medallas_manuales', req.params.id, `${rows[0].nombre_completo} · ${rows[0].tipo}`, req.user.id);
   const { rowCount } = await query('DELETE FROM medallas_manuales WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'No encontrada.' });
   res.json({ mensaje: 'Medalla eliminada.' });

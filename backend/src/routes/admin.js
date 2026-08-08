@@ -5,6 +5,7 @@ import xlsx from 'xlsx';
 import { query } from '../db.js';
 import { requireAuth, requireRole, requireModulo, requireSuperAdmin, requireEditarPresencial } from '../auth.js';
 import { normalizarNombre } from '../texto.js';
+import { guardarEnPapelera, guardarParticipanteEnPapelera } from '../papelera.js';
 
 const router = Router();
 router.use(requireAuth); // todas las rutas de admin requieren sesión
@@ -147,6 +148,8 @@ router.put('/participantes/:id/inscripciones/:orden/presencial', requireEditarPr
 });
 
 router.delete('/participantes/:id', requireModulo('participantes', 'edicion'), async (req, res) => {
+  const { rows } = await query('SELECT nombre_completo FROM participantes WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarParticipanteEnPapelera(req.params.id, rows[0].nombre_completo, req.user.id);
   const { rowCount } = await query('DELETE FROM participantes WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Participante no encontrado.' });
   res.json({ mensaje: 'Participante eliminado.' });
@@ -363,6 +366,92 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
   });
 });
 
+// GET /api/admin/estadisticas/mapa?vista=historico|ciclo_actual|nivel|desercion&nivel=1-4
+// Ruta aparte y liviana: solo recalcula el mapa cuando cambias la vista, sin repetir todo
+// lo demás de Estadísticas cada vez (menos consultas a la base de datos).
+router.get('/estadisticas/mapa', requireModulo('estadisticas', 'consulta'), async (req, res) => {
+  const vista = req.query.vista || 'historico';
+  const nivel = parseInt(req.query.nivel, 10) || null;
+
+  let filas;
+  let sufijo = '';
+
+  if (vista === 'ciclo_actual') {
+    const { rows } = await query(`
+      SELECT COALESCE(p.departamento,'Sin depto.') AS departamento, COALESCE(p.municipio,'Sin municipio') AS municipio, COUNT(DISTINCT p.id)::int AS total
+      FROM participantes p
+      JOIN inscripciones i ON i.participante_id = p.id
+      JOIN eventos e ON e.id = i.evento_id AND e.es_actual = TRUE
+      WHERE i.ciclo = e.ciclo_actual
+      GROUP BY p.departamento, p.municipio`);
+    filas = rows;
+  } else if (vista === 'nivel' && nivel >= 1 && nivel <= 4) {
+    const { rows } = await query(`
+      SELECT COALESCE(p.departamento,'Sin depto.') AS departamento, COALESCE(p.municipio,'Sin municipio') AS municipio, COUNT(DISTINCT p.id)::int AS total
+      FROM participantes p
+      JOIN inscripciones i ON i.participante_id = p.id
+      JOIN eventos e ON e.id = i.evento_id AND e.orden = $1
+      GROUP BY p.departamento, p.municipio`, [nivel]);
+    filas = rows;
+  } else if (vista === 'desercion' && nivel >= 2 && nivel <= 4) {
+    sufijo = '%';
+    const { rows } = await query(`
+      WITH elegibles AS (
+        SELECT DISTINCT i_prev.participante_id, COALESCE(p.departamento,'Sin depto.') AS departamento, COALESCE(p.municipio,'Sin municipio') AS municipio
+        FROM inscripciones i_prev
+        JOIN eventos e_prev ON e_prev.id = i_prev.evento_id AND e_prev.orden = $1 - 1 AND i_prev.ciclo <> e_prev.ciclo_actual
+        JOIN participantes p ON p.id = i_prev.participante_id
+      ),
+      desertores AS (
+        SELECT el.participante_id FROM elegibles el
+        WHERE NOT EXISTS (
+          SELECT 1 FROM inscripciones i_cur JOIN eventos e_cur ON e_cur.id = i_cur.evento_id AND e_cur.orden = $1
+          WHERE i_cur.participante_id = el.participante_id
+        )
+      )
+      SELECT el.departamento, el.municipio,
+        COUNT(DISTINCT el.participante_id)::int AS total_elegibles,
+        COUNT(DISTINCT d.participante_id)::int AS total_desertores
+      FROM elegibles el LEFT JOIN desertores d ON d.participante_id = el.participante_id
+      GROUP BY el.departamento, el.municipio`, [nivel]);
+
+    // Se calcula la tasa (%) por municipio Y se guardan los conteos crudos, para poder sacar
+    // después el promedio ponderado real por departamento (no un promedio simple de %).
+    const mapaDepartamentos = {};
+    for (const r of rows) {
+      if (!mapaDepartamentos[r.departamento]) mapaDepartamentos[r.departamento] = { departamento: r.departamento, elegibles: 0, desertores: 0, municipios: [] };
+      mapaDepartamentos[r.departamento].elegibles += r.total_elegibles;
+      mapaDepartamentos[r.departamento].desertores += r.total_desertores;
+      mapaDepartamentos[r.departamento].municipios.push({
+        municipio: r.municipio,
+        total: r.total_elegibles > 0 ? Math.round((r.total_desertores / r.total_elegibles) * 100) : 0
+      });
+    }
+    const resultado = Object.values(mapaDepartamentos).map(d => ({
+      departamento: d.departamento,
+      total: d.elegibles > 0 ? Math.round((d.desertores / d.elegibles) * 100) : 0,
+      municipios: d.municipios
+    }));
+    return res.json({ mapa: resultado, sufijo });
+  } else {
+    // 'historico' (por defecto): todos los participantes, sin filtrar por inscripción —
+    // exactamente el mismo cálculo que ya usaba el mapa antes de este cambio.
+    const { rows } = await query(`
+      SELECT COALESCE(departamento,'Sin depto.') AS departamento, COALESCE(municipio,'Sin municipio') AS municipio, COUNT(*)::int AS total
+      FROM participantes GROUP BY departamento, municipio ORDER BY departamento, total DESC`);
+    filas = rows;
+  }
+
+  const mapaDepartamentos = {};
+  for (const fila of filas) {
+    if (!mapaDepartamentos[fila.departamento]) mapaDepartamentos[fila.departamento] = { departamento: fila.departamento, total: 0, municipios: [] };
+    mapaDepartamentos[fila.departamento].total += fila.total;
+    mapaDepartamentos[fila.departamento].municipios.push({ municipio: fila.municipio, total: fila.total });
+  }
+
+  res.json({ mapa: Object.values(mapaDepartamentos), sufijo });
+});
+
 // GET /api/admin/estadisticas/excel -> descarga un libro de Excel con varias hojas
 router.get('/estadisticas/excel', requireModulo('estadisticas', 'consulta'), async (req, res) => {
   const [porEvento, porZona, porDepartamento, porCapitulo, porDia] = await Promise.all([
@@ -455,6 +544,8 @@ router.post('/usuarios/:id/resetear-2fa', requireSuperAdmin, async (req, res) =>
 
 router.delete('/usuarios/:id', requireSuperAdmin, async (req, res) => {
   if (String(req.user.id) === req.params.id) return res.status(400).json({ error: 'No puedes eliminar tu propio usuario.' });
+  const { rows } = await query('SELECT nombre, email FROM usuarios_admin WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarEnPapelera('usuarios_admin', req.params.id, `${rows[0].nombre} · ${rows[0].email}`, req.user.id);
   const { rowCount } = await query('DELETE FROM usuarios_admin WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Usuario no encontrado.' });
   res.json({ mensaje: 'Usuario eliminado.' });

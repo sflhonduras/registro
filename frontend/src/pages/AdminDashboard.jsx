@@ -34,10 +34,27 @@ export default function AdminDashboard() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const nav = useNavigate();
+  const [vistaMapa, setVistaMapa] = useState('historico');
+  const [nivelMapa, setNivelMapa] = useState(2);
+  const [mapaDatos, setMapaDatos] = useState(null);
+  const [mapaError, setMapaError] = useState('');
+  const [mapaSufijo, setMapaSufijo] = useState('');
+  const [cargandoMapa, setCargandoMapa] = useState(false);
 
   useEffect(() => {
     api.get('/admin/estadisticas').then(r => setDatos(r.data)).catch(() => setError('No se pudieron cargar las estadísticas.'));
   }, []);
+
+  useEffect(() => {
+    setCargandoMapa(true);
+    setMapaError('');
+    const params = { vista: vistaMapa };
+    if (vistaMapa === 'nivel' || vistaMapa === 'desercion') params.nivel = nivelMapa;
+    api.get('/admin/estadisticas/mapa', { params })
+      .then(r => { setMapaDatos(r.data.mapa); setMapaSufijo(r.data.sufijo || ''); })
+      .catch(() => setMapaError('No se pudo cargar el mapa con esta vista.'))
+      .finally(() => setCargandoMapa(false));
+  }, [vistaMapa, nivelMapa]);
 
   if (error) return <p className="text-ember">{error}</p>;
   if (!datos) return <p className="text-ink/50">Cargando estadísticas…</p>;
@@ -121,9 +138,45 @@ export default function AdminDashboard() {
       )}
 
       <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
-        <p className="mb-1 font-semibold text-ink">🗺️ Mapa de Honduras · Participantes por departamento</p>
-        <p className="mb-4 text-xs text-ink/40">El tamaño y color de cada círculo representa cuántos participantes vienen de ese departamento. Pasa el mouse para ver los municipios.</p>
-        <HondurasMapa datos={datos.mapa_departamentos || []} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="mb-1 font-semibold text-ink">🗺️ Mapa de Honduras</p>
+            <p className="text-xs text-ink/40">Pasa el mouse para ver los municipios, o haz clic en un departamento para ver el reporte completo.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={vistaMapa} onChange={e => setVistaMapa(e.target.value)} className="rounded-lg border border-ink/15 px-2.5 py-1.5 text-xs">
+              <option value="historico">Total histórico</option>
+              <option value="ciclo_actual">Solo ciclo actual</option>
+              <option value="nivel">Por nivel específico</option>
+              <option value="desercion">Tasa de deserción</option>
+            </select>
+            {vistaMapa === 'nivel' && (
+              <select value={nivelMapa} onChange={e => setNivelMapa(Number(e.target.value))} className="rounded-lg border border-ink/15 px-2.5 py-1.5 text-xs">
+                {[1, 2, 3, 4].map(n => <option key={n} value={n}>Nivel {n}</option>)}
+              </select>
+            )}
+            {vistaMapa === 'desercion' && (
+              <select value={nivelMapa === 1 ? 2 : nivelMapa} onChange={e => setNivelMapa(Number(e.target.value))} className="rounded-lg border border-ink/15 px-2.5 py-1.5 text-xs">
+                {[2, 3, 4].map(n => <option key={n} value={n}>Deserción Nivel {n}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+        <div className="mt-4">
+          {cargandoMapa ? (
+            <p className="py-10 text-center text-sm text-ink/40">Cargando mapa…</p>
+          ) : mapaError ? (
+            <p className="py-10 text-center text-sm text-ember">{mapaError}</p>
+          ) : !mapaDatos ? (
+            <p className="py-10 text-center text-sm text-ink/40">Sin datos para mostrar.</p>
+          ) : (
+            <HondurasMapa
+              datos={mapaDatos}
+              sufijo={mapaSufijo}
+              onDepartamentoClick={(departamento) => nav(`/admin/reportes?evento=todos&departamento=${encodeURIComponent(departamento)}`)}
+            />
+          )}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

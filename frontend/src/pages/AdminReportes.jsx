@@ -39,7 +39,7 @@ export default function AdminReportes() {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [zona, setZona] = useState('');
-  const [departamento, setDepartamento] = useState('');
+  const [departamento, setDepartamento] = useState(parametrosUrl.get('departamento') || '');
   const [capitulo, setCapitulo] = useState('');
   const [buscar, setBuscar] = useState('');
   const [medalla, setMedalla] = useState('');

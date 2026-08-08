@@ -35,7 +35,9 @@ const origenesPermitidos = (process.env.CORS_ORIGIN || '*').split(',').map(o => 
 app.use(cors({
   origin: origenesPermitidos.includes('*') ? '*' : origenesPermitidos
 }));
-app.use(express.json());
+// El límite normal de Express (100 KB) es muy poco para un respaldo completo de la base de
+// datos (participantes, inscripciones, etc.), que se sube entero como JSON al restaurar.
+app.use(express.json({ limit: '25mb' }));
 app.use(auditoriaMiddleware);
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 });

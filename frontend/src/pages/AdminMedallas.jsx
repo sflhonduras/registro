@@ -6,7 +6,16 @@ const EMOJI = { Bronce: '🥉', Plata: '🥈', Oro: '🥇', Platino: '🏆', 'Vu
 
 export default function AdminMedallas() {
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
+  const [nivelMedallas, setNivelMedallas] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
+  const soloLectura = nivelMedallas !== 'edicion';
+
+  useEffect(() => {
+    if (usuario?.rol === 'super_admin' || usuario?.rol === 'cocina') return;
+    api.get('/admin/mis-permisos').then(r => {
+      const permiso = r.data.find(p => p.modulo === 'medallas');
+      setNivelMedallas(permiso ? permiso.nivel : 'consulta');
+    }).catch(() => setNivelMedallas('consulta'));
+  }, []);
 
   const [medallas, setMedallas] = useState([]);
   const [cargando, setCargando] = useState(true);

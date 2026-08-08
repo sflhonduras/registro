@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import api, { mensajeError } from '../api';
 import {
   ZONAS_FIHNEC, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
@@ -30,6 +30,7 @@ function esCumpleanosEsteMes(fechaNacimiento) {
 
 function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const [form, setForm] = useState({ cargos_desempenados: [], formacion_oficial: [], otras_participaciones: [], ...servidor });
+  const inputFotoRef = useRef(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
@@ -87,6 +88,26 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
     );
   };
 
+  // Mismo estilo visual que multiSelect (checkboxes en cuadrícula), pero de selección única —
+  // "Tipo de testimonio" sigue siendo un solo valor, solo cambia cómo se ve/elige.
+  const checkboxUnico = (clave, etiqueta, opciones) => {
+    const valorActual = form[clave] || '';
+    const elegir = (op) => setForm(f => ({ ...f, [clave]: f[clave] === op ? '' : op }));
+    return (
+      <div className="sm:col-span-2">
+        <span className="mb-1.5 block text-sm text-ink/60">{etiqueta}</span>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-ink/15 p-3 sm:grid-cols-3">
+          {opciones.map(op => (
+            <label key={op} className="flex items-center gap-1.5 text-xs text-ink/70">
+              <input type="checkbox" checked={valorActual === op} onChange={() => elegir(op)} />
+              {op}
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const subirFoto = (e) => {
     const archivo = e.target.files?.[0];
     if (!archivo) return;
@@ -108,17 +129,28 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
         <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-gold">Datos Generales</p>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2 flex items-center gap-4">
-            {form.foto && <img src={form.foto} alt="Foto" className="h-16 w-16 rounded-full object-cover" />}
-            <label className="text-sm">
-              <span className="mb-1 block text-ink/60">Foto</span>
-              <input type="file" accept="image/*" onChange={subirFoto} className="text-xs" />
-            </label>
+            {form.foto ? (
+              <img src={form.foto} alt="Foto" className="h-20 w-16 rounded-lg object-cover border border-ink/10" />
+            ) : (
+              <div className="h-20 w-16 rounded-lg border border-dashed border-ink/20 bg-parchment-2" />
+            )}
+            <div className="text-sm">
+              <input ref={inputFotoRef} type="file" accept="image/*" onChange={subirFoto} className="hidden" />
+              <button type="button" onClick={() => inputFotoRef.current?.click()}
+                className="rounded-full border border-gold/40 bg-gold/10 px-4 py-1.5 text-xs font-semibold text-gold hover:bg-gold/20">
+                {form.foto ? '📷 Cambiar foto' : '📷 Subir foto'}
+              </button>
+              <p className="mt-1 text-[11px] text-ink/40">
+                Recomendado: foto vertical tipo carnet (más alta que ancha), proporción aprox. 4:5 —
+                por ejemplo 400 × 480 píxeles. Si es cuadrada o panorámica, va a quedar espacio vacío en la ficha.
+              </p>
+            </div>
           </div>
           <div className="sm:col-span-2">{campo('nombre_completo', 'Nombre completo')}</div>
           {campo('dni', 'DNI')}
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Fecha de nacimiento {edad !== null && <span className="text-ink/40">({edad} años)</span>}</span>
-            <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_nacimiento ?? ''} onChange={set('fecha_nacimiento')} />
+            <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_nacimiento ? String(form.fecha_nacimiento).slice(0, 10) : ''} onChange={set('fecha_nacimiento')} />
           </label>
           {selectSimple('estado_civil', 'Estado civil', ESTADOS_CIVILES)}
           {campo('nombre_esposa', 'Nombre de la esposa (si aplica)')}
@@ -136,7 +168,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
           {selectSimple('zona', 'Zona', ZONAS_FIHNEC)}
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Fecha de inscripción al capítulo</span>
-            <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_inscripcion_capitulo ?? ''} onChange={set('fecha_inscripcion_capitulo')} />
+            <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_inscripcion_capitulo ? String(form.fecha_inscripcion_capitulo).slice(0, 10) : ''} onChange={set('fecha_inscripcion_capitulo')} />
           </label>
           {campo('tiempo_fihnec', 'Tiempo en FIHNEC (ej. "5 años")')}
           {selectSimple('cargo_actual', 'Cargo actual', CARGOS_FIHNEC)}
@@ -145,7 +177,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
 
         <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-gold">Testimonio y Formación</p>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          {selectSimple('tipo_testimonio', 'Tipo de testimonio', TIPOS_TESTIMONIO)}
+          {checkboxUnico('tipo_testimonio', 'Tipo de testimonio', TIPOS_TESTIMONIO)}
           {multiSelect('formacion_oficial', 'Formación oficial', FORMACION_OFICIAL)}
           {multiSelect('otras_participaciones', 'Otras participaciones', OTRAS_PARTICIPACIONES)}
         </div>
@@ -316,20 +348,26 @@ export default function AdminServidores() {
           <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
             <tr>
               <th className="px-4 py-3">Nombre Completo</th>
-              <th className="px-4 py-3">🎂</th>
-              <th className="px-4 py-3">Participará en el Evento</th>
-              <th className="px-4 py-3 text-right">Acciones</th>
+              <th className="px-4 py-3 text-center">🎂</th>
+              <th className="px-4 py-3 text-center">Participará en el Evento</th>
+              <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {cargando && <tr><td colSpan={4} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
-            {!cargando && servidores.map(s => (
+            {!cargando && [...servidores]
+              .sort((a, b) => Number(esCumpleanosEsteMes(b.fecha_nacimiento)) - Number(esCumpleanosEsteMes(a.fecha_nacimiento)))
+              .map(s => (
               <tr key={s.id} className="border-t border-ink/5">
                 <td className="px-4 py-2.5 font-medium text-ink">{s.nombre_completo}</td>
-                <td className="px-4 py-2.5">
-                  {esCumpleanosEsteMes(s.fecha_nacimiento) && <span title="Cumpleaños este mes">🎂</span>}
+                <td className="px-4 py-2.5 text-center">
+                  {esCumpleanosEsteMes(s.fecha_nacimiento) && (
+                    <span title="Cumpleaños este mes" className="inline-flex items-center gap-1">
+                      <span className="text-xs text-ink/50">{calcularEdad(s.fecha_nacimiento)} años</span> 🎂
+                    </span>
+                  )}
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 text-center">
                   <label className="inline-flex items-center gap-2">
                     <input type="checkbox" disabled={soloLectura} checked={s.participara_evento} onChange={() => toggleParticipara(s)} />
                     <span className={s.participara_evento ? 'text-palm font-medium' : 'text-ink/40'}>
@@ -337,7 +375,7 @@ export default function AdminServidores() {
                     </span>
                   </label>
                 </td>
-                <td className="px-4 py-2.5 text-right">
+                <td className="px-4 py-2.5 text-center">
                   <button onClick={() => descargarFicha(s)} className="text-palm hover:underline">Ficha</button>
                   <button onClick={() => setSeleccionado(s)} className="ml-3 text-gold hover:underline">{soloLectura ? 'Ver' : 'Editar'}</button>
                   {!soloLectura && <button onClick={() => eliminar(s)} className="ml-3 text-ember hover:underline">Eliminar</button>}

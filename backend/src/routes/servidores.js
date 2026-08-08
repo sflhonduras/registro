@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db.js';
 import { requireAuth, requireModulo } from '../auth.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
+import { guardarEnPapelera } from '../papelera.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, '../../assets/logo.png');
@@ -386,6 +387,8 @@ router.get('/:id/ficha', async (req, res) => {
 });
 
 router.delete('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
+  const { rows } = await query('SELECT nombre_completo FROM servidores WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarEnPapelera('servidores', req.params.id, rows[0].nombre_completo, req.user.id);
   const { rowCount } = await query('DELETE FROM servidores WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Servidor no encontrado.' });
   res.json({ mensaje: 'Servidor eliminado.' });

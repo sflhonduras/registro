@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 import xlsx from 'xlsx';
 import { query } from '../db.js';
 import { requireAuth, requireModulo } from '../auth.js';
+import { guardarEnPapelera } from '../papelera.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -73,6 +74,8 @@ router.post('/tipos-vehiculo', requireModulo('transporte', 'edicion'), async (re
 });
 
 router.delete('/tipos-vehiculo/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
+  const { rows } = await query('SELECT nombre FROM tipos_vehiculo WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarEnPapelera('tipos_vehiculo', req.params.id, rows[0].nombre, req.user.id);
   const { rowCount } = await query('DELETE FROM tipos_vehiculo WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Tipo de vehículo no encontrado.' });
   res.json({ mensaje: 'Eliminado.' });
@@ -176,6 +179,8 @@ router.put('/transportes/:id', requireModulo('transporte', 'edicion'), async (re
 
 // DELETE /api/admin/transporte/transportes/:id
 router.delete('/transportes/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
+  const { rows } = await query('SELECT ciudad, fecha_salida FROM transportes WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarEnPapelera('transportes', req.params.id, `${rows[0].ciudad} · ${rows[0].fecha_salida}`, req.user.id);
   const { rowCount } = await query('DELETE FROM transportes WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Transporte no encontrado.' });
   res.json({ mensaje: 'Eliminado.' });

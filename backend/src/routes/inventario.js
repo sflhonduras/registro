@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 import xlsx from 'xlsx';
 import { query } from '../db.js';
 import { requireAuth, requireModulo } from '../auth.js';
+import { guardarItemInventarioEnPapelera } from '../papelera.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -90,6 +91,8 @@ router.put('/items/:id', requireModulo('inventario', 'edicion'), async (req, res
 
 // DELETE /api/admin/inventario/items/:id
 router.delete('/items/:id', requireModulo('inventario', 'edicion'), async (req, res) => {
+  const { rows } = await query('SELECT nombre FROM items_inventario WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarItemInventarioEnPapelera(req.params.id, rows[0].nombre, req.user.id);
   const { rowCount } = await query('DELETE FROM items_inventario WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Ítem no encontrado.' });
   res.json({ mensaje: 'Ítem eliminado.' });
