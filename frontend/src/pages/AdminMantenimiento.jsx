@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../api';
+import { VERSION, FECHA_VERSION } from '../version';
 
 export default function AdminMantenimiento() {
   const [resumen, setResumen] = useState(null);
@@ -156,7 +157,12 @@ export default function AdminMantenimiento() {
 
   return (
     <div>
-      <h1 className="font-display text-2xl font-bold text-ink">Mantenimiento</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="font-display text-2xl font-bold text-ink">Mantenimiento</h1>
+        <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/50" title={`Actualizado el ${FECHA_VERSION}`}>
+          Sistema {VERSION}
+        </span>
+      </div>
       <p className="mt-1 text-sm text-ink/50">
         Descarga un respaldo completo de la base de datos (eventos, participantes, inscripciones,
         servidores y configuración) en el formato que prefieras.
