@@ -138,6 +138,55 @@ async function construirConsulta(q) {
     return { columnas, filas: filasFinal, evento_resuelto: 'repeticiones', esDesercion: false, esRepeticiones: true };
   }
 
+  // Participantes Sin Requisitos: es un reporte totalmente aparte, igual que "repeticiones" —
+  // no filtra por nivel de la forma normal, sino que lista lo que hay en participantes_excepcion.
+  if (q.evento === 'sin_requisitos') {
+    const { rows } = await query(
+      `SELECT pe.*, p.nombre_completo AS p_nombre_completo, p.dni AS p_dni, p.celular AS p_celular,
+         p.capitulo AS p_capitulo, p.zona AS p_zona, p.departamento AS p_departamento
+       FROM participantes_excepcion pe
+       LEFT JOIN participantes p ON p.id = pe.participante_id
+       ORDER BY pe.creado_en DESC`
+    );
+
+    let filas = rows.map(r => ({
+      nombre_completo: r.participante_id ? r.p_nombre_completo : r.nombre_completo,
+      dni: r.participante_id ? r.p_dni : r.dni,
+      celular: r.participante_id ? r.p_celular : r.celular,
+      capitulo: r.participante_id ? r.p_capitulo : r.capitulo,
+      zona: r.participante_id ? r.p_zona : r.zona,
+      departamento: r.participante_id ? r.p_departamento : r.departamento,
+      nivel_completado: r.nivel_completado,
+      nivel_pendiente: r.nivel_completado + 1,
+      eventos_sin_diploma: (r.eventos_sin_diploma || []).map(e => `Nivel ${e.orden} (${e.fecha})`).join(', '),
+      nota: r.nota || ''
+    }));
+
+    filas = filas.filter(f => {
+      if (q.zona && f.zona !== q.zona) return false;
+      if (q.departamento && f.departamento !== q.departamento) return false;
+      if (q.capitulo && !(f.capitulo || '').toLowerCase().includes(q.capitulo.toLowerCase())) return false;
+      if (q.buscar) {
+        const texto = q.buscar.toLowerCase();
+        const coincide = [f.nombre_completo, f.dni, f.capitulo].some(v => (v || '').toLowerCase().includes(texto));
+        if (!coincide) return false;
+      }
+      return true;
+    });
+
+    const columnas = [
+      { clave: 'nombre_completo', titulo: 'Nombre Completo' },
+      { clave: 'dni', titulo: 'DNI' },
+      { clave: 'capitulo', titulo: 'Capítulo' },
+      { clave: 'nivel_completado', titulo: 'Nivel Completado' },
+      { clave: 'nivel_pendiente', titulo: 'Nivel Pendiente' },
+      { clave: 'eventos_sin_diploma', titulo: 'Eventos Asistidos Sin Diploma' },
+      { clave: 'nota', titulo: 'Nota' }
+    ];
+
+    return { columnas, filas, evento_resuelto: 'sin_requisitos', esDesercion: false, esRepeticiones: false, esSinRequisitos: true };
+  }
+
   let evento = q.evento && q.evento !== 'todos' ? q.evento : null;
 
   // "Evento actual": resuelve en tiempo real cuál nivel está marcado como activo.
@@ -391,7 +440,8 @@ async function obtenerMedallasManualesComoFilas() {
   return filas;
 }
 
-function construirTitulo(eventoResuelto, esDesercion, esRepeticiones) {
+function construirTitulo(eventoResuelto, esDesercion, esRepeticiones, esSinRequisitos) {
+  if (esSinRequisitos) return 'Reporte de Participantes Sin Requisitos';
   if (esRepeticiones) return 'Reporte de Repeticiones SFL — Medallas 🏅';
   if (esDesercion) return `Reporte de Deserción SFL ${NIVEL_ROMANO[eventoResuelto]}`;
   if (eventoResuelto) return `Reporte SFL Nivel ${NIVEL_ROMANO[eventoResuelto]}`;
@@ -427,8 +477,8 @@ function formatearValorExport(clave, valor) {
 }
 
 router.get('/excel', async (req, res) => {
-  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones } = await construirConsulta(req.query);
-  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones);
+  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos } = await construirConsulta(req.query);
+  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos);
   const datos = filas.map((f, i) => {
     const fila = { '#': i + 1 };
     for (const c of columnas) fila[c.titulo] = formatearValorExport(c.clave, f[c.clave]);
@@ -461,8 +511,8 @@ const INK = '#2B2118';
 const LINEA = '#D8CBAE';
 
 router.get('/pdf', async (req, res) => {
-  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones } = await construirConsulta(req.query);
-  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones);
+  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos } = await construirConsulta(req.query);
+  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos);
   const colorTitulo = esDesercion ? EMBER : GOLD;
   const colorBandaTabla = esDesercion ? BANNER_BG_DESERCION : BANNER_BG_NORMAL;
 

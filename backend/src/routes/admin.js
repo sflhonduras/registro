@@ -275,7 +275,7 @@ router.get('/evento-actual-resumen', async (req, res) => {
 });
 
 router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (req, res) => {
-  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4, porDesercion] = await Promise.all([
+  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4, porDesercion, totalSinRequisitos] = await Promise.all([
     query(`
       SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
         COUNT(i.id)::int AS total_inscritos,
@@ -328,7 +328,8 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
           SELECT 1 FROM inscripciones i_cur
           WHERE i_cur.participante_id = i_prev.participante_id AND i_cur.evento_id = e_dest.id
         )
-      GROUP BY e_dest.orden`)
+      GROUP BY e_dest.orden`),
+    query('SELECT COUNT(*)::int AS total FROM participantes_excepcion')
   ]);
 
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
@@ -362,7 +363,8 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
     mapa_departamentos: Object.values(mapaDepartamentos),
     embudo: embudo.rows,
     graduados_por_promocion: porPromocion.rows,
-    total_graduados_nivel_4: totalGraduadosNivel4.rows[0].total
+    total_graduados_nivel_4: totalGraduadosNivel4.rows[0].total,
+    total_sin_requisitos: totalSinRequisitos.rows[0].total
   });
 });
 

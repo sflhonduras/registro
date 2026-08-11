@@ -17,6 +17,7 @@ import transporteRoutes from './routes/transporte.js';
 import auditoriaRoutes from './routes/auditoriaRoutes.js';
 import medallasManualesRoutes from './routes/medallasManuales.js';
 import autoconsultaRoutes from './routes/autoconsulta.js';
+import participantesExcepcionRoutes from './routes/participantesExcepcion.js';
 import { auditoriaMiddleware } from './auditoria.js';
 
 // Red de seguridad: si algo se escapa igual, se registra pero NO se cae el servidor.
@@ -61,6 +62,7 @@ app.use('/api/admin/inventario', inventarioRoutes);
 app.use('/api/admin/transporte', transporteRoutes);
 app.use('/api/admin/auditoria', auditoriaRoutes);
 app.use('/api/admin/medallas-manuales', medallasManualesRoutes);
+app.use('/api/admin/participantes-excepcion', participantesExcepcionRoutes);
 app.use('/api/autoconsulta', autoconsultaRoutes);
 
 app.use((err, req, res, next) => {

@@ -11,6 +11,7 @@ import AdminLayout from './pages/AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminParticipantes from './pages/AdminParticipantes';
 import AdminDiplomas from './pages/AdminDiplomas';
+import AdminDiplomasSinRequisitos from './pages/AdminDiplomasSinRequisitos';
 import AdminReportes from './pages/AdminReportes';
 import AdminMedallas from './pages/AdminMedallas';
 import AdminServidores from './pages/AdminServidores';
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="panel" element={<AdminDashboard />} />
             <Route path="participantes" element={<AdminParticipantes />} />
             <Route path="diplomas" element={<AdminDiplomas />} />
+            <Route path="diplomas/sin-requisitos" element={<AdminDiplomasSinRequisitos />} />
             <Route path="reportes" element={<AdminReportes />} />
             <Route path="medallas" element={<AdminMedallas />} />
             <Route path="servidores" element={<AdminServidores />} />

@@ -10,7 +10,7 @@ import { pool } from './db.js';
 
 // Orden de las tablas — de padres a hijos, para insertar sin violar llaves foráneas.
 // Para borrar (modo reemplazo) se recorre al revés.
-const ORDEN_TABLAS = ['eventos', 'servidores', 'participantes', 'inscripciones', 'inscripciones_historial', 'medallas_manuales', 'configuracion'];
+const ORDEN_TABLAS = ['eventos', 'servidores', 'participantes', 'participantes_excepcion', 'inscripciones', 'inscripciones_historial', 'medallas_manuales', 'configuracion'];
 
 // La mayoría de tablas usan "id" como identificador único, pero "configuracion" es una tabla
 // tipo llave-valor que usa "clave" en su lugar.

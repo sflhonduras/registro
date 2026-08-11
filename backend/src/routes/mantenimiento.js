@@ -17,7 +17,7 @@ router.post('/respaldo/simular', simularRestauracion);
 router.post('/respaldo/aplicar', aplicarRestauracion);
 
 async function obtenerTablas() {
-  const [eventos, participantes, inscripciones, inscripcionesHistorial, medallasManuales, servidores, configuracion, usuariosAdmin] = await Promise.all([
+  const [eventos, participantes, inscripciones, inscripcionesHistorial, medallasManuales, servidores, configuracion, usuariosAdmin, participantesExcepcion] = await Promise.all([
     query('SELECT * FROM eventos ORDER BY orden'),
     query('SELECT * FROM participantes ORDER BY id'),
     query('SELECT * FROM inscripciones ORDER BY id'),
@@ -26,7 +26,8 @@ async function obtenerTablas() {
     query('SELECT * FROM servidores ORDER BY id'),
     query('SELECT * FROM configuracion ORDER BY clave'),
     // Nunca se incluye password_hash en ningún respaldo, ni JSON ni Excel.
-    query('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios_admin ORDER BY id')
+    query('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios_admin ORDER BY id'),
+    query('SELECT * FROM participantes_excepcion ORDER BY id')
   ]);
   return {
     eventos: eventos.rows,
@@ -36,7 +37,8 @@ async function obtenerTablas() {
     medallas_manuales: medallasManuales.rows,
     servidores: servidores.rows,
     configuracion: configuracion.rows,
-    usuarios_admin: usuariosAdmin.rows
+    usuarios_admin: usuariosAdmin.rows,
+    participantes_excepcion: participantesExcepcion.rows
   };
 }
 
@@ -70,7 +72,8 @@ router.get('/respaldo-excel', async (req, res) => {
     medallas_manuales: 'Medallas',
     servidores: 'Servidores',
     configuracion: 'Configuracion',
-    usuarios_admin: 'Usuarios'
+    usuarios_admin: 'Usuarios',
+    participantes_excepcion: 'Sin Requisitos'
   };
 
   const LIMITE_CELDA_EXCEL = 32000; // el límite real de Excel es 32767; dejamos margen

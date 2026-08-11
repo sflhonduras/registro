@@ -625,11 +625,11 @@ function imprimirEtiqueta(nombreCompleto) {
           <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
             <tr>
               <th className="px-4 py-3">Nombre</th>
-              <th className="px-4 py-3">DNI</th>
-              <th className="px-4 py-3">Capítulo</th>
-              <th className="px-4 py-3">Niveles</th>
-              {eventoParaColumna && <th className="px-4 py-3">Registrado</th>}
-              <th className="px-4 py-3 text-right">Acciones</th>
+              <th className="px-4 py-3 text-center">DNI</th>
+              <th className="px-4 py-3 text-center">Capítulo</th>
+              <th className="px-4 py-3 text-center">Niveles</th>
+              {eventoParaColumna && <th className="px-4 py-3 text-center">Registrado</th>}
+              <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -642,10 +642,10 @@ function imprimirEtiqueta(nombreCompleto) {
                     <span title="Q.E.P.D." className="ml-2 text-ink/40">✝</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-ink/60">{p.dni}</td>
-                <td className="px-4 py-3 text-ink/60">{p.capitulo || '—'}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-1">
+                <td className="px-4 py-3 text-center text-ink/60">{p.dni}</td>
+                <td className="px-4 py-3 text-center text-ink/60">{p.capitulo || '—'}</td>
+                <td className="px-4 py-3 text-center">
+                  <div className="flex justify-center gap-1">
                     {[1, 2, 3, 4].map(n => (
                       <span key={n} className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
                         (p.eventos_inscritos || []).includes(n) ? 'bg-palm/15 text-palm' : 'bg-ink/5 text-ink/30'
@@ -654,7 +654,7 @@ function imprimirEtiqueta(nombreCompleto) {
                   </div>
                 </td>
                 {eventoParaColumna && (
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-center">
                     <input
                       type="checkbox"
                       disabled={!puedeMarcarPresencial}
@@ -664,7 +664,7 @@ function imprimirEtiqueta(nombreCompleto) {
                     />
                   </td>
                 )}
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-center">
                   <button onClick={() => abrirDetalle(p)} className="text-gold hover:underline">{soloLectura ? 'Ver' : 'Editar'}</button>
                   {!soloLectura && (
                     <button onClick={() => eliminar(p)} className="ml-3 text-ember hover:underline">Eliminar</button>

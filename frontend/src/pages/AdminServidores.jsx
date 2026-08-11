@@ -29,7 +29,11 @@ function esCumpleanosEsteMes(fechaNacimiento) {
 }
 
 function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ cargos_desempenados: [], formacion_oficial: [], otras_participaciones: [], ...servidor });
+  const [form, setForm] = useState({
+    cargos_desempenados: [], formacion_oficial: [], otras_participaciones: [],
+    dias_asistencia: { viernes: true, sabado: true, domingo: true },
+    ...servidor
+  });
   const inputFotoRef = useRef(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -37,11 +41,19 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const guardar = async () => {
     setGuardando(true); setError('');
     try {
-      if (form.id) await api.put(`/admin/servidores/${form.id}`, form);
-      else await api.post('/admin/servidores', form);
+      let id = form.id;
+      if (id) await api.put(`/admin/servidores/${id}`, form);
+      else {
+        const { data } = await api.post('/admin/servidores', form);
+        id = data.id;
+      }
+      // Los 3 días viven aparte (tabla configuracion), en su propio endpoint.
+      await api.put(`/admin/servidores/${id}/dias-asistencia`, form.dias_asistencia);
       onGuardado();
     } catch (err) { setError(mensajeError(err)); } finally { setGuardando(false); }
   };
+
+  const toggleDia = (dia) => setForm(f => ({ ...f, dias_asistencia: { ...f.dias_asistencia, [dia]: !f.dias_asistencia[dia] } }));
 
   const set = (clave) => (e) => setForm(f => ({ ...f, [clave]: e.target.value }));
 
@@ -182,11 +194,18 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
           {multiSelect('otras_participaciones', 'Otras participaciones', OTRAS_PARTICIPACIONES)}
         </div>
 
-        <label className="mt-5 flex items-center gap-2 text-sm font-medium text-ink">
-          <input type="checkbox" checked={!!form.participara_evento}
-            onChange={e => setForm(f => ({ ...f, participara_evento: e.target.checked }))} />
-          Participará en el evento actual
-        </label>
+        <div className="mt-5">
+          <p className="text-sm font-medium text-ink">Participará en el evento actual</p>
+          <p className="text-xs text-ink/50">Marcados por defecto — desmarca el día que no le aplique.</p>
+          <div className="mt-2 flex gap-4">
+            {[['viernes', 'Viernes'], ['sabado', 'Sábado'], ['domingo', 'Domingo']].map(([clave, etiqueta]) => (
+              <label key={clave} className="flex items-center gap-2 text-sm text-ink/80">
+                <input type="checkbox" checked={!!form.dias_asistencia[clave]} onChange={() => toggleDia(clave)} />
+                {etiqueta}
+              </label>
+            ))}
+          </div>
+        </div>
 
         {error && <p className="mt-4 rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
 
@@ -223,12 +242,6 @@ export default function AdminServidores() {
   const cargar = () => api.get('/admin/servidores').then(r => setServidores(r.data)).finally(() => setCargando(false));
   useEffect(() => { cargar(); }, []);
 
-  const toggleParticipara = async (s) => {
-    if (soloLectura) return;
-    await api.put(`/admin/servidores/${s.id}`, { participara_evento: !s.participara_evento });
-    cargar();
-  };
-
   const eliminar = async (s) => {
     if (!confirm(`¿Eliminar a ${s.nombre_completo} de la lista de servidores?`)) return;
     await api.delete(`/admin/servidores/${s.id}`);
@@ -236,7 +249,7 @@ export default function AdminServidores() {
   };
 
   const reiniciarParticipacion = async () => {
-    if (!confirm('¿Quitar la marca "Participará en el evento" a TODOS los servidores? Esto no borra a nadie, solo reinicia el checkbox.')) return;
+    if (!confirm('¿Volver a marcar los 3 días (Viernes/Sábado/Domingo) de TODOS los servidores? Esto no borra a nadie, solo reinicia los checkboxes a marcados.')) return;
     setReiniciando(true);
     try {
       await api.post('/admin/servidores/reiniciar-participacion');
@@ -334,7 +347,7 @@ export default function AdminServidores() {
                 className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5 disabled:opacity-60">
                 {reiniciando ? 'Reiniciando…' : '↺ Reiniciar participación'}
               </button>
-              <button onClick={() => setSeleccionado({ nombre_completo: '', participara_evento: false })}
+              <button onClick={() => setSeleccionado({ nombre_completo: '', dias_asistencia: { viernes: true, sabado: true, domingo: true } })}
                 className="rounded-full bg-gold px-5 py-2 text-sm font-semibold text-night hover:bg-gold-light">
                 + Agregar servidor
               </button>
@@ -349,7 +362,7 @@ export default function AdminServidores() {
             <tr>
               <th className="px-4 py-3">Nombre Completo</th>
               <th className="px-4 py-3 text-center">🎂</th>
-              <th className="px-4 py-3 text-center">Participará en el Evento</th>
+              <th className="px-4 py-3 text-center">Días de Asistencia</th>
               <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
@@ -368,12 +381,19 @@ export default function AdminServidores() {
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-center">
-                  <label className="inline-flex items-center gap-2">
-                    <input type="checkbox" disabled={soloLectura} checked={s.participara_evento} onChange={() => toggleParticipara(s)} />
-                    <span className={s.participara_evento ? 'text-palm font-medium' : 'text-ink/40'}>
-                      {s.participara_evento ? 'Sí' : 'No'}
-                    </span>
-                  </label>
+                  <div className="inline-flex items-center gap-1.5">
+                    {[['viernes', 'V'], ['sabado', 'S'], ['domingo', 'D']].map(([clave, letra]) => (
+                      <span key={clave} title={clave}
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                          s.dias_asistencia?.[clave] ? 'bg-gold/20 text-gold' : 'bg-ink/5 text-ink/30'
+                        }`}>
+                        {letra}
+                      </span>
+                    ))}
+                  </div>
+                  <p className={`mt-1 text-xs ${s.participara_evento ? 'text-palm font-medium' : 'text-ink/40'}`}>
+                    {s.participara_evento ? 'Sí participa' : 'No participa'}
+                  </p>
                 </td>
                 <td className="px-4 py-2.5 text-center">
                   <button onClick={() => descargarFicha(s)} className="text-palm hover:underline">Ficha</button>

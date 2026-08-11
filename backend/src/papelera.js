@@ -10,7 +10,8 @@ import { query } from './db.js';
 // Solo estas tablas pueden pasar por la papelera — nunca se arma el nombre de tabla a partir
 // de algo que venga del usuario, siempre de esta lista fija (evita inyección SQL).
 const TABLAS_PERMITIDAS = new Set([
-  'servidores', 'usuarios_admin', 'items_inventario', 'tipos_vehiculo', 'transportes', 'medallas_manuales'
+  'servidores', 'usuarios_admin', 'items_inventario', 'tipos_vehiculo', 'transportes', 'medallas_manuales',
+  'participantes_excepcion'
 ]);
 
 // Guarda una copia de una fila (de una tabla "simple", de un solo registro) en la papelera,

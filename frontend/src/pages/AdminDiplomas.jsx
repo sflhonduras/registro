@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api';
 
 export default function AdminDiplomas() {
@@ -80,6 +81,10 @@ export default function AdminDiplomas() {
           Todavía no hay ningún nivel marcado como "evento actual". Ve a <strong>Eventos</strong> y marca cuál nivel
           se está promoviendo ahora mismo.
         </p>
+        <Link to="/admin/diplomas/sin-requisitos"
+          className="mt-4 inline-block rounded-full border border-gold/40 px-5 py-2 text-sm font-semibold text-gold hover:bg-gold/10">
+          📋 Participantes Sin Requisitos
+        </Link>
       </div>
     );
   }
@@ -95,6 +100,10 @@ export default function AdminDiplomas() {
         </span>
 
         <div className="flex gap-2">
+          <Link to="/admin/diplomas/sin-requisitos"
+            className="rounded-full border border-gold/40 px-5 py-2 text-sm font-semibold text-gold hover:bg-gold/10">
+            📋 Participantes Sin Requisitos
+          </Link>
           <button onClick={imprimir} disabled={!datos}
             className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5 disabled:opacity-60">
             🖨️ Imprimir

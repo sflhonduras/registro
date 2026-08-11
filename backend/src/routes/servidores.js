@@ -34,14 +34,44 @@ const COLUMNAS_EXPORT = {
 };
 
 // Campos editables desde el panel (además de los de siempre).
+// Nota: "participara_evento" YA NO se edita directo — se calcula solo a partir de los 3
+// checkboxes de días (Viernes/Sábado/Domingo), ver más abajo.
 const CAMPOS_ARRAY = ['cargos_desempenados', 'formacion_oficial', 'otras_participaciones'];
 const CAMPOS_EDITABLES = [
   'nombre_completo', 'dni', 'capitulo', 'celular', 'estado_civil', 'hijos_cantidad',
-  'fecha_nacimiento', 'email', 'participara_evento',
+  'fecha_nacimiento', 'email',
   'nombre_esposa', 'nietos_cantidad', 'profesion', 'contacto_emergencia_telefono', 'foto',
   'fecha_inscripcion_capitulo', 'tiempo_fihnec', 'cargo_actual', 'zona', 'tipo_testimonio',
   ...CAMPOS_ARRAY
 ];
+
+// ---------- Días de asistencia por servidor (Viernes/Sábado/Domingo) ----------
+// Por decisión de Carlos, esto NO agrega columnas nuevas a la tabla "servidores" — se guarda
+// como un JSON dentro de la tabla "configuracion" (la misma que ya usa ciclo_actual, etc.),
+// bajo la clave 'dias_asistencia_evento'. Formato:
+//   { "<servidor_id>": { "viernes": true, "sabado": true, "domingo": true }, ... }
+// Un servidor que NO aparece en el mapa se asume con los 3 días marcados (el valor por
+// defecto al cargar la pantalla, según el diseño acordado).
+const CLAVE_CONFIG_DIAS = 'dias_asistencia_evento';
+const DIAS_POR_DEFECTO = { viernes: true, sabado: true, domingo: true };
+
+async function obtenerMapaDias() {
+  const { rows } = await query('SELECT valor FROM configuracion WHERE clave = $1', [CLAVE_CONFIG_DIAS]);
+  if (!rows[0]) return {};
+  try { return JSON.parse(rows[0].valor) || {}; } catch { return {}; }
+}
+
+async function guardarMapaDias(mapa) {
+  await query(
+    `INSERT INTO configuracion (clave, valor, actualizado_en) VALUES ($1, $2, now())
+     ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, actualizado_en = now()`,
+    [CLAVE_CONFIG_DIAS, JSON.stringify(mapa)]
+  );
+}
+
+function diasDe(mapa, servidorId) {
+  return mapa[String(servidorId)] || DIAS_POR_DEFECTO;
+}
 
 router.get('/excel', async (req, res) => {
   const { rows } = await query('SELECT * FROM servidores ORDER BY nombre_completo ASC');
@@ -92,8 +122,12 @@ router.get('/pdf', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const { rows } = await query('SELECT * FROM servidores ORDER BY nombre_completo ASC');
-  res.json(rows);
+  const [{ rows }, mapaDias] = await Promise.all([
+    query('SELECT * FROM servidores ORDER BY nombre_completo ASC'),
+    obtenerMapaDias()
+  ]);
+  const conDias = rows.map(s => ({ ...s, dias_asistencia: diasDe(mapaDias, s.id) }));
+  res.json(conDias);
 });
 
 router.post('/', requireModulo('servidores', 'edicion'), async (req, res) => {
@@ -141,11 +175,40 @@ router.put('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
   res.json(rows[0]);
 });
 
-// POST /api/admin/servidores/reiniciar-participacion -> pone en falso el checkbox
-// "Participará en el evento" para TODOS los servidores de una vez (ej. antes de un evento nuevo).
+// PUT /api/admin/servidores/:id/dias-asistencia body: { viernes, sabado, domingo }
+// Guarda los 3 checkboxes de días en el mapa de configuración y recalcula automáticamente
+// "participara_evento" (Sí si al menos 1 de los 3 días está marcado, No si los 3 están
+// desmarcados) — los 3 checkboxes son la única fuente real del dato, "participara_evento"
+// es solo la etiqueta calculada a partir de ellos.
+router.put('/:id/dias-asistencia', requireModulo('servidores', 'edicion'), async (req, res) => {
+  const b = req.body || {};
+  const dias = {
+    viernes: !!b.viernes,
+    sabado: !!b.sabado,
+    domingo: !!b.domingo
+  };
+  const participaraEvento = dias.viernes || dias.sabado || dias.domingo;
+
+  const mapa = await obtenerMapaDias();
+  mapa[String(req.params.id)] = dias;
+  await guardarMapaDias(mapa);
+
+  const { rows } = await query(
+    'UPDATE servidores SET participara_evento = $1, actualizado_en = now() WHERE id = $2 RETURNING *',
+    [participaraEvento, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
+  res.json({ ...rows[0], dias_asistencia: dias });
+});
+
+// POST /api/admin/servidores/reiniciar-participacion -> vuelve a marcar los 3 días
+// (Viernes/Sábado/Domingo) de TODOS los servidores, y por lo tanto "participara_evento"
+// vuelve a Sí para todos (ej. antes de un evento nuevo, para que todos arranquen marcados
+// y cada quien desmarque el día que no le aplique).
 router.post('/reiniciar-participacion', requireModulo('servidores', 'edicion'), async (req, res) => {
-  const { rowCount } = await query('UPDATE servidores SET participara_evento = FALSE WHERE participara_evento = TRUE');
-  res.json({ mensaje: `Se reinició la participación de ${rowCount} servidor(es).`, actualizados: rowCount });
+  await guardarMapaDias({}); // vacío = todos vuelven al valor por defecto (3 días marcados)
+  const { rowCount } = await query('UPDATE servidores SET participara_evento = TRUE');
+  res.json({ mensaje: 'Se reinició la participación: todos los servidores vuelven a tener los 3 días marcados.', actualizados: rowCount });
 });
 
 // ---------- Colores de marca (mismos de la web) ----------

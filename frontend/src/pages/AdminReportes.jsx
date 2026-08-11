@@ -11,6 +11,7 @@ const NIVELES = [
   { valor: '3', etiqueta: 'Nivel III' },
   { valor: '4', etiqueta: 'Nivel IV' },
   { valor: 'repeticiones', etiqueta: '🏅 Repeticiones (2da vuelta o más)' },
+  { valor: 'sin_requisitos', etiqueta: '📋 Participantes Sin Requisitos' },
 ];
 
 const MEDALLAS = ['Bronce', 'Plata', 'Oro', 'Platino', 'Vuelta Completa'];
@@ -113,9 +114,11 @@ export default function AdminReportes() {
   const NIVEL_ROMANO = { '1': 'I', '2': 'II', '3': 'III', '4': 'IV' };
   const tituloImpresion = nivel === 'repeticiones'
     ? 'Reporte de Repeticiones SFL — Medallas 🏅'
-    : alcance === 'desercion'
-      ? `Reporte de Deserción SFL ${NIVEL_ROMANO[nivel]}`
-      : (nivel !== 'todos' ? `Reporte SFL Nivel ${NIVEL_ROMANO[nivel] || nivel}` : 'Reporte de Participantes');
+    : nivel === 'sin_requisitos'
+      ? 'Reporte de Participantes Sin Requisitos'
+      : alcance === 'desercion'
+        ? `Reporte de Deserción SFL ${NIVEL_ROMANO[nivel]}`
+        : (nivel !== 'todos' ? `Reporte SFL Nivel ${NIVEL_ROMANO[nivel] || nivel}` : 'Reporte de Participantes');
   const colorEncabezadoImpresion = alcance === 'desercion' ? '#B23A2E' : '#241A12';
   const colorBandaImpresion = alcance === 'desercion' ? '#F3DAD6' : '#F1E6CC';
 
@@ -170,7 +173,7 @@ export default function AdminReportes() {
             </select>
           </label>
 
-          {nivel !== 'repeticiones' && (
+          {nivel !== 'repeticiones' && nivel !== 'sin_requisitos' && (
             <label className="text-sm">
               <span className="mb-1 block text-ink/60">¿Qué registros?</span>
               <select value={alcance} onChange={e => setAlcance(e.target.value)} className={claseSelect}>
@@ -194,7 +197,7 @@ export default function AdminReportes() {
             </label>
           )}
 
-          {nivel !== 'repeticiones' && alcance === 'rango' && (
+          {nivel !== 'repeticiones' && nivel !== 'sin_requisitos' && alcance === 'rango' && (
             <>
               <label className="text-sm">
                 <span className="mb-1 block text-ink/60">Desde</span>
@@ -234,8 +237,7 @@ export default function AdminReportes() {
           </label>
         </div>
 
-        {/* Selección de columnas */}
-        {nivel !== 'repeticiones' && (
+        {nivel !== 'repeticiones' && nivel !== 'sin_requisitos' && (
           <div>
             <p className="mb-2 text-sm font-medium text-ink/70">Columnas a incluir en el reporte</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
@@ -274,6 +276,11 @@ export default function AdminReportes() {
               {nivel === 'repeticiones' && (
                 <span className="mr-2 rounded-full bg-gold/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gold">
                   🏅 Repeticiones — Medallas
+                </span>
+              )}
+              {nivel === 'sin_requisitos' && (
+                <span className="mr-2 rounded-full bg-gold/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gold">
+                  📋 Participantes Sin Requisitos
                 </span>
               )}
               {resultado.total} resultado(s)

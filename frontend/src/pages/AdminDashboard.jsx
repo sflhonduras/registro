@@ -89,6 +89,18 @@ export default function AdminDashboard() {
               </div>
             </button>
           )}
+          {datos.total_sin_requisitos != null && (
+            <button
+              onClick={() => nav('/admin/diplomas/sin-requisitos')}
+              className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-gold/30 bg-gold/10 px-6 py-4 text-left transition hover:border-gold/60 hover:shadow-md"
+            >
+              <span className="font-display text-4xl font-bold text-gold">📋</span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Sin requisitos</p>
+                <p className="text-sm text-ink/60"><span className="font-display text-xl font-bold text-gold">{datos.total_sin_requisitos}</span> participante(s) esperando ponerse al día</p>
+              </div>
+            </button>
+          )}
         </div>
       )}
 
