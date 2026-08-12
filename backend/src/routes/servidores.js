@@ -3,6 +3,7 @@ import xlsx from 'xlsx';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import QRCode from 'qrcode';
 import { query } from '../db.js';
 import { requireAuth, requireModulo } from '../auth.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
@@ -24,7 +25,7 @@ const COLUMNAS_EXPORT = {
   nombre_completo: 'Nombre Completo',
   dni: 'DNI',
   capitulo: 'Capítulo',
-  zona: 'Zona',
+  departamento: 'Departamento',
   celular: 'Celular',
   estado_civil: 'Estado Civil',
   hijos_cantidad: 'Hijos',
@@ -41,37 +42,14 @@ const CAMPOS_EDITABLES = [
   'nombre_completo', 'dni', 'capitulo', 'celular', 'estado_civil', 'hijos_cantidad',
   'fecha_nacimiento', 'email',
   'nombre_esposa', 'nietos_cantidad', 'profesion', 'contacto_emergencia_telefono', 'foto',
-  'fecha_inscripcion_capitulo', 'tiempo_fihnec', 'cargo_actual', 'zona', 'tipo_testimonio',
+  'fecha_inscripcion_capitulo', 'tiempo_fihnec', 'cargo_actual', 'zona', 'departamento', 'municipio', 'tipo_testimonio',
   ...CAMPOS_ARRAY
 ];
 
-// ---------- Días de asistencia por servidor (Viernes/Sábado/Domingo) ----------
-// Por decisión de Carlos, esto NO agrega columnas nuevas a la tabla "servidores" — se guarda
-// como un JSON dentro de la tabla "configuracion" (la misma que ya usa ciclo_actual, etc.),
-// bajo la clave 'dias_asistencia_evento'. Formato:
-//   { "<servidor_id>": { "viernes": true, "sabado": true, "domingo": true }, ... }
-// Un servidor que NO aparece en el mapa se asume con los 3 días marcados (el valor por
-// defecto al cargar la pantalla, según el diseño acordado).
-const CLAVE_CONFIG_DIAS = 'dias_asistencia_evento';
-const DIAS_POR_DEFECTO = { viernes: true, sabado: true, domingo: true };
+import { obtenerMapaDias, guardarMapaDias, diasDe, guardarDiasServidor } from '../diasAsistencia.js';
 
-async function obtenerMapaDias() {
-  const { rows } = await query('SELECT valor FROM configuracion WHERE clave = $1', [CLAVE_CONFIG_DIAS]);
-  if (!rows[0]) return {};
-  try { return JSON.parse(rows[0].valor) || {}; } catch { return {}; }
-}
-
-async function guardarMapaDias(mapa) {
-  await query(
-    `INSERT INTO configuracion (clave, valor, actualizado_en) VALUES ($1, $2, now())
-     ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, actualizado_en = now()`,
-    [CLAVE_CONFIG_DIAS, JSON.stringify(mapa)]
-  );
-}
-
-function diasDe(mapa, servidorId) {
-  return mapa[String(servidorId)] || DIAS_POR_DEFECTO;
-}
+// (Los días de asistencia por servidor ahora viven en backend/src/diasAsistencia.js,
+// compartido con el portal público — ver ese archivo para el diseño completo.)
 
 router.get('/excel', async (req, res) => {
   const { rows } = await query('SELECT * FROM servidores ORDER BY nombre_completo ASC');
@@ -96,27 +74,97 @@ router.get('/pdf', async (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="servidores_sfl.pdf"');
 
-  const doc = new PDFDocument({ size: 'letter', margin: 30, layout: 'landscape' });
+  const MARGEN = 30;
+  const doc = new PDFDocument({ size: 'letter', margin: MARGEN, layout: 'landscape' });
   doc.pipe(res);
-  doc.fontSize(15).font('Helvetica-Bold').text('FIHNEC · Servidores del SFL', { align: 'center' });
-  doc.moveDown(1);
 
-  const anchoDisponible = doc.page.width - 60;
-  const anchoCol = anchoDisponible / (columnas.length + 1);
-  const dibujarFila = (valores, negrita) => {
-    doc.font(negrita ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
-    let x = 30; const y = doc.y;
-    valores.forEach(v => { doc.text(String(v ?? ''), x, y, { width: anchoCol - 5 }); x += anchoCol; });
-    doc.moveDown(0.6);
+  const ANCHO = doc.page.width;
+  const ANCHO_TABLA = ANCHO - MARGEN * 2;
+
+  // Encabezado con el mismo estilo de marca que la Ficha individual (banda oscura + línea dorada).
+  const dibujarEncabezado = () => {
+    doc.rect(0, 0, ANCHO, 50).fill(NIGHT);
+    doc.rect(0, 50, ANCHO, 3).fill(GOLD);
+    doc.fillColor(PARCHMENT).font('Helvetica').fontSize(8).text('FIHNEC HONDURAS', MARGEN, 14, { characterSpacing: 2 });
+    doc.fillColor(GOLD).font('Times-Bold').fontSize(16).text('Servidores del SFL', MARGEN, 25);
+    doc.y = 68;
+  };
+  dibujarEncabezado();
+
+  // Anchos de columna proporcionales — ajustados para que, con nombres/capítulos/correos
+  // típicos, el texto quede en aproximadamente: Nombre 2 líneas (nombres/apellidos),
+  // DNI 1 línea, Capítulo 2 líneas, Correo 2 líneas. La altura real de cada fila igual
+  // se sigue midiendo abajo, así que un valor más largo de lo normal nunca se corta.
+  const PROPORCIONES = {
+    '#': 0.32, nombre_completo: 1.3, dni: 1.05, capitulo: 1.0, departamento: 0.75, celular: 0.58,
+    estado_civil: 0.55, hijos_cantidad: 0.42, fecha_nacimiento: 0.65, cargo_actual: 0.82, email: 1.15
+  };
+  const clavesConNumero = ['#', ...columnas.map(([clave]) => clave)];
+  const sumaProporciones = clavesConNumero.reduce((acc, c) => acc + (PROPORCIONES[c] || 0.8), 0);
+  const anchosCol = clavesConNumero.map(c => ((PROPORCIONES[c] || 0.8) / sumaProporciones) * ANCHO_TABLA);
+
+  // Rótulos abreviados SOLO para el encabezado del PDF (el Excel sigue usando el nombre
+  // completo de COLUMNAS_EXPORT, ahí sí hay espacio de sobra).
+  const TITULOS_PDF = { fecha_nacimiento: 'F.D.N.', departamento: 'Depto.' };
+
+  // Nombre completo en 2 líneas fijas: nombres (primer y segundo nombre) en la línea 1,
+  // apellidos en la línea 2 — en vez de dejar que el ancho de columna decida dónde corta.
+  const partirNombre = (nombreCompleto) => {
+    const partes = String(nombreCompleto || '').trim().split(/\s+/).filter(Boolean);
+    if (partes.length <= 2) return partes.join(' ');
+    return `${partes.slice(0, 2).join(' ')}\n${partes.slice(2).join(' ')}`;
   };
 
-  dibujarFila(['#', ...columnas.map(([, titulo]) => titulo)], true);
-  doc.moveTo(30, doc.y).lineTo(30 + anchoDisponible, doc.y).strokeColor('#cccccc').stroke();
-  doc.moveDown(0.3);
+  const formatearValor = (clave, valor) => {
+    if (clave === 'nombre_completo') return partirNombre(valor);
+    if (valor === null || valor === undefined || valor === '') return '—';
+    if (clave === 'fecha_nacimiento') {
+      const f = new Date(valor);
+      return isNaN(f) ? '—' : f.toLocaleDateString('es-HN', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    return String(valor);
+  };
+
+  const PAD_X = 6;
+  const PAD_Y = 5;
+  const encabezadoColumnas = ['#', ...columnas.map(([clave, titulo]) => TITULOS_PDF[clave] || titulo)];
+
+  // Calcula cuánto mide cada celda de la fila (puede tener varias líneas) y usa la más
+  // alta para avanzar — así ninguna fila se monta sobre la siguiente, sin importar cuán
+  // largo sea un correo, un capítulo o cualquier otro campo.
+  const dibujarFila = (valores, { negrita = false, fondo = null, colorTexto = INK, esEncabezadoTabla = false } = {}) => {
+    doc.font(negrita ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5);
+    const alturas = valores.map((v, i) => doc.heightOfString(String(v ?? ''), { width: anchosCol[i] - PAD_X * 2 }));
+    const alturaFila = Math.max(...alturas, 9) + PAD_Y * 2;
+
+    if (!esEncabezadoTabla && doc.y + alturaFila > doc.page.height - MARGEN) {
+      doc.addPage({ size: 'letter', margin: MARGEN, layout: 'landscape' });
+      dibujarEncabezado();
+      // Repite el encabezado de columnas (nombres de campo) en cada página nueva, y
+      // vuelve a fijar la letra normal — dibujarEncabezado() dejó activa la letra grande
+      // dorada del título, que si no se resetea aquí se "hereda" en la siguiente fila.
+      dibujarFila(encabezadoColumnas, { negrita: true, fondo: BANNER_BG, colorTexto: NIGHT, esEncabezadoTabla: true });
+      doc.font(negrita ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5);
+    }
+    const y = doc.y;
+    if (fondo) doc.rect(MARGEN, y, ANCHO_TABLA, alturaFila).fill(fondo);
+    doc.fillColor(colorTexto);
+    let x = MARGEN;
+    valores.forEach((v, i) => {
+      doc.text(String(v ?? ''), x + PAD_X, y + PAD_Y, { width: anchosCol[i] - PAD_X * 2 });
+      x += anchosCol[i];
+    });
+    doc.y = y + alturaFila;
+    doc.moveTo(MARGEN, doc.y).lineTo(MARGEN + ANCHO_TABLA, doc.y).lineWidth(0.5).strokeColor(LINEA).stroke();
+  };
+
+  dibujarFila(encabezadoColumnas, { negrita: true, fondo: BANNER_BG, colorTexto: NIGHT, esEncabezadoTabla: true });
 
   rows.forEach((s, i) => {
-    if (doc.y > doc.page.height - 60) doc.addPage({ size: 'letter', margin: 30, layout: 'landscape' });
-    dibujarFila([i + 1, ...columnas.map(([clave]) => s[clave])], false);
+    dibujarFila(
+      [i + 1, ...columnas.map(([clave]) => formatearValor(clave, s[clave]))],
+      { fondo: i % 2 === 1 ? PARCHMENT : null }
+    );
   });
   doc.end();
 });
@@ -126,6 +174,18 @@ router.get('/', async (req, res) => {
     query('SELECT * FROM servidores ORDER BY nombre_completo ASC'),
     obtenerMapaDias()
   ]);
+
+  // Autocorrección: servidores que NUNCA han tocado los 3 checkboxes de días (no están en
+  // el mapa) deben tener participara_evento = TRUE, porque el valor por defecto de los 3
+  // días es "marcados". Si la columna en la base quedó con un valor viejo de antes de este
+  // cambio (algunos en false), se corrige aquí mismo — así el conteo que usa Cocina y el
+  // resumen de esta pantalla siempre coinciden con lo que se ve en los círculos V/S/D.
+  const idsSinTocar = rows.filter(s => !mapaDias[String(s.id)] && s.participara_evento !== true).map(s => s.id);
+  if (idsSinTocar.length > 0) {
+    await query('UPDATE servidores SET participara_evento = TRUE WHERE id = ANY($1::int[])', [idsSinTocar]);
+    for (const s of rows) if (idsSinTocar.includes(s.id)) s.participara_evento = true;
+  }
+
   const conDias = rows.map(s => ({ ...s, dias_asistencia: diasDe(mapaDias, s.id) }));
   res.json(conDias);
 });
@@ -142,9 +202,11 @@ router.post('/', requireModulo('servidores', 'edicion'), async (req, res) => {
   if (b.nombre_esposa) datos.nombre_esposa = normalizarNombre(b.nombre_esposa);
 
   const cols = CAMPOS_EDITABLES.filter(c => datos[c] !== undefined);
+  cols.push('pin');
+  const pinNuevo = String(Math.floor(1000 + Math.random() * 9000));
   const nombresCols = cols.join(', ');
   const marcadores = cols.map((_, i) => `$${i + 1}`).join(', ');
-  const vals = cols.map(c => datos[c]);
+  const vals = [...CAMPOS_EDITABLES.filter(c => datos[c] !== undefined).map(c => datos[c]), pinNuevo];
 
   const { rows } = await query(
     `INSERT INTO servidores (${nombresCols}) VALUES (${marcadores}) RETURNING *`,
@@ -175,30 +237,44 @@ router.put('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
   res.json(rows[0]);
 });
 
+// PUT /api/admin/servidores/:id/participacion body: { participa: boolean }
+// Interruptor maestro "Participará en el evento", independiente de los 3 días.
+// - Al APAGARLO: solo se apaga participara_evento, los días guardados no se tocan.
+// - Al ENCENDERLO: se rellenan los 3 días (Viernes/Sábado/Domingo) marcados de una vez.
+router.put('/:id/participacion', requireModulo('servidores', 'edicion'), async (req, res) => {
+  const participa = !!req.body?.participa;
+  const mapa = await obtenerMapaDias();
+  if (participa) {
+    mapa[String(req.params.id)] = { ...DIAS_POR_DEFECTO };
+    await guardarMapaDias(mapa);
+  }
+  const { rows } = await query(
+    'UPDATE servidores SET participara_evento = $1, actualizado_en = now() WHERE id = $2 RETURNING *',
+    [participa, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
+  res.json({ ...rows[0], dias_asistencia: diasDe(mapa, req.params.id) });
+});
+
 // PUT /api/admin/servidores/:id/dias-asistencia body: { viernes, sabado, domingo }
 // Guarda los 3 checkboxes de días en el mapa de configuración y recalcula automáticamente
 // "participara_evento" (Sí si al menos 1 de los 3 días está marcado, No si los 3 están
 // desmarcados) — los 3 checkboxes son la única fuente real del dato, "participara_evento"
 // es solo la etiqueta calculada a partir de ellos.
+// POST /api/admin/servidores/:id/regenerar-pin -> genera un PIN nuevo de 4 dígitos para
+// el portal del servidor (por si lo perdió o quiere que se lo compartas de nuevo).
+router.post('/:id/regenerar-pin', requireModulo('servidores', 'edicion'), async (req, res) => {
+  const pinNuevo = String(Math.floor(1000 + Math.random() * 9000));
+  const { rows } = await query('UPDATE servidores SET pin = $1 WHERE id = $2 RETURNING id, pin', [pinNuevo, req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
+  res.json(rows[0]);
+});
+
 router.put('/:id/dias-asistencia', requireModulo('servidores', 'edicion'), async (req, res) => {
   const b = req.body || {};
-  const dias = {
-    viernes: !!b.viernes,
-    sabado: !!b.sabado,
-    domingo: !!b.domingo
-  };
-  const participaraEvento = dias.viernes || dias.sabado || dias.domingo;
-
-  const mapa = await obtenerMapaDias();
-  mapa[String(req.params.id)] = dias;
-  await guardarMapaDias(mapa);
-
-  const { rows } = await query(
-    'UPDATE servidores SET participara_evento = $1, actualizado_en = now() WHERE id = $2 RETURNING *',
-    [participaraEvento, req.params.id]
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
-  res.json({ ...rows[0], dias_asistencia: dias });
+  const actualizado = await guardarDiasServidor(req.params.id, { viernes: b.viernes, sabado: b.sabado, domingo: b.domingo });
+  if (!actualizado.id) return res.status(404).json({ error: 'Servidor no encontrado.' });
+  res.json(actualizado);
 });
 
 // POST /api/admin/servidores/reiniciar-participacion -> vuelve a marcar los 3 días
@@ -386,6 +462,7 @@ router.get('/:id/ficha', async (req, res) => {
   const camposOrg = [
     ['Capítulo inscrito:', s.capitulo],
     ['Zona:', s.zona],
+    ['Departamento:', s.departamento],
     ['Fecha inscripción capítulo:', formatearFecha(s.fecha_inscripcion_capitulo)],
     ['Cargo actual:', s.cargo_actual],
     ['Tiempo en FIHNEC:', s.tiempo_fihnec],
@@ -445,6 +522,19 @@ router.get('/:id/ficha', async (req, res) => {
   const yPie = ALTO_PAG - 22;
   doc.moveTo(MARGEN, yPie).lineTo(ANCHO - MARGEN, yPie).lineWidth(0.5).strokeColor(LINEA).stroke();
   doc.fillColor(INK_SOFT).font('Helvetica').fontSize(7.5).text(`Generado el ${formatearFecha(new Date())} · Sistema SFL FIHNEC`, MARGEN, yPie + 5);
+
+  // QR de acceso directo al Portal del Servidor (autoconsulta + gestión). Solo lleva a la
+  // pantalla de acceso con el DNI ya escrito — el servidor todavía necesita su PIN para
+  // entrar, así que un tercero que vea la ficha no puede acceder solo con el QR.
+  if (s.pin) {
+    try {
+      const urlPortal = `https://sflhonduras.com/servidores/portal?dni=${encodeURIComponent(s.dni || '')}`;
+      const qrBuffer = await QRCode.toBuffer(urlPortal, { margin: 0, width: 200 });
+      const QR_TAM = 46;
+      doc.image(qrBuffer, ANCHO - MARGEN - QR_TAM, yPie - QR_TAM - 4, { width: QR_TAM, height: QR_TAM });
+      doc.fillColor(INK_SOFT).font('Helvetica').fontSize(6).text('Portal del Servidor', ANCHO - MARGEN - QR_TAM - 20, yPie - 14, { width: QR_TAM + 16, align: 'center' });
+    } catch { /* si falla el QR, la ficha se genera igual sin él */ }
+  }
 
   doc.end();
 });

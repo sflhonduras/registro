@@ -27,8 +27,8 @@ const TITULOS_EXPORT = {
   estado_civil: 'Estado Civil', hijos_cantidad: 'Hijos', comparte_testimonio: 'Comparte Testimonio',
   tiempo_comparte_testimonio: 'Tiempo de Testimonio', ha_recibido_sael: 'Ha recibido SAEL',
   cantidad_saeles: 'Cantidad de SAELES', contacto_emergencia_nombre: 'Contacto de Emergencia',
-  contacto_emergencia_telefono: 'Teléfono de Emergencia', nivel_completado: 'Nivel Completado',
-  nivel_pendiente: 'Nivel Pendiente', eventos_sin_diploma: 'Eventos Asistidos Sin Diploma', nota: 'Nota'
+  contacto_emergencia_telefono: 'Teléfono de Emergencia', niveles_resumen: 'Niveles Con Evidencia',
+  eventos_sin_diploma: 'Eventos Asistidos Sin Diploma', nota: 'Nota'
 };
 
 // Junta los datos "reales" de una fila de excepción: si participante_id existe, trae los
@@ -41,13 +41,51 @@ function normalizarFila(fila, participante) {
     id: fila.id,
     participante_id: fila.participante_id,
     ...datos,
-    nivel_completado: fila.nivel_completado,
-    nivel_pendiente: fila.nivel_completado + 1,
     eventos_sin_diploma: fila.eventos_sin_diploma || [],
     nota: fila.nota,
     creado_en: fila.creado_en,
     actualizado_en: fila.actualizado_en
   };
+}
+
+// El nivel completado YA NO se escribe a mano: se calcula solo, cruzando evidencia real.
+// Un nivel (1 a 4) cuenta como "con evidencia" si:
+//   a) el participante ya existía y tiene una inscripción GRADUADA (fecha_graduacion no nula)
+//      en ese nivel, o
+//   b) hay un evento sin diploma guardado en esta misma ficha para ese nivel.
+// Solo cuando los 4 niveles tienen evidencia se habilita el traslado a Participantes.
+async function calcularNivelesParaFilas(filas) {
+  const idsConParticipante = filas.filter(f => f.participante_id).map(f => f.participante_id);
+  let inscripcionesPorParticipante = {};
+  if (idsConParticipante.length > 0) {
+    const { rows } = await query(
+      `SELECT i.participante_id, e.orden, i.fecha_graduacion, i.ciclo, i.promocion_graduacion
+       FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+       WHERE i.participante_id = ANY($1::int[]) AND i.fecha_graduacion IS NOT NULL`,
+      [idsConParticipante]
+    );
+    for (const r of rows) {
+      (inscripcionesPorParticipante[r.participante_id] ??= []).push(r);
+    }
+  }
+
+  return filas.map(f => {
+    const inscripciones = inscripcionesPorParticipante[f.participante_id] || [];
+    const eventosSinDiploma = f.eventos_sin_diploma || [];
+    const niveles = [1, 2, 3, 4].map(orden => {
+      const graduado = inscripciones.find(i => i.orden === orden);
+      if (graduado) {
+        return { orden, completo: true, fuente: 'graduado', fecha: graduado.fecha_graduacion, ciclo: graduado.ciclo, promocion: graduado.promocion_graduacion };
+      }
+      const sinDiploma = eventosSinDiploma.find(e => e.orden === orden);
+      if (sinDiploma) {
+        return { orden, completo: true, fuente: 'sin_diploma', fecha: sinDiploma.fecha, ciclo: sinDiploma.ciclo || null, promocion: null };
+      }
+      return { orden, completo: false, fuente: null, fecha: null, ciclo: null, promocion: null };
+    });
+    const listoParaTrasladar = niveles.every(n => n.completo);
+    return { ...f, niveles, listo_para_trasladar: listoParaTrasladar };
+  });
 }
 
 async function listarConDatos(where = '1=1', params = []) {
@@ -64,7 +102,7 @@ async function listarConDatos(where = '1=1', params = []) {
      ORDER BY pe.creado_en DESC`,
     params
   );
-  return rows.map(r => {
+  const filas = rows.map(r => {
     const participante = r.participante_id ? {
       nombre_completo: r.p_nombre_completo, dni: r.p_dni, celular: r.p_celular, capitulo: r.p_capitulo,
       zona: r.p_zona, departamento: r.p_departamento, municipio: r.p_municipio, cargo_fihnec: r.p_cargo_fihnec,
@@ -75,6 +113,7 @@ async function listarConDatos(where = '1=1', params = []) {
     } : null;
     return normalizarFila(r, participante);
   });
+  return calcularNivelesParaFilas(filas);
 }
 
 // GET /api/admin/participantes-excepcion?buscar=
@@ -88,6 +127,21 @@ router.get('/', async (req, res) => {
   }
   const filas = await listarConDatos(where, params);
   res.json({ total: filas.length, datos: filas });
+});
+
+// GET /api/admin/participantes-excepcion/:id/niveles -> vista fresca de "Niveles inscritos"
+// para un solo registro (se usa al abrir el modal de edición, por si algo cambió mientras
+// tanto — ej. se graduó realmente en otro módulo).
+router.get('/:id/niveles', async (req, res) => {
+  const { rows } = await query(
+    `SELECT pe.*, p.nombre_completo AS p_nombre_completo
+     FROM participantes_excepcion pe LEFT JOIN participantes p ON p.id = pe.participante_id
+     WHERE pe.id = $1`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'No encontrado.' });
+  const [conNiveles] = await calcularNivelesParaFilas([normalizarFila(rows[0], null)]);
+  res.json({ niveles: conNiveles.niveles, listo_para_trasladar: conNiveles.listo_para_trasladar });
 });
 
 // GET /api/admin/participantes-excepcion/verificar/:dni -> revisa si el DNI ya existe en
@@ -114,13 +168,15 @@ router.get('/verificar/:dni', async (req, res) => {
 });
 
 // POST /api/admin/participantes-excepcion -> registrar (nunca existió, o ya existía y se enlaza)
+// Nota: ya no recibe "nivel_completado" — eso ahora se calcula solo, ver calcularNivelesParaFilas.
 router.post('/', requireModulo('diplomas', 'edicion'), async (req, res) => {
   const b = req.body || {};
-  const nivelCompletado = Number.isInteger(b.nivel_completado) ? b.nivel_completado : parseInt(b.nivel_completado, 10) || 0;
   const eventoAsistido = b.evento_asistido ? parseInt(b.evento_asistido, 10) : null;
-  const eventosSinDiploma = eventoAsistido
-    ? [{ orden: eventoAsistido, fecha: new Date().toISOString().slice(0, 10) }]
-    : [];
+  let eventosSinDiploma = [];
+  if (eventoAsistido) {
+    const { rows: evRows } = await query('SELECT ciclo_actual FROM eventos WHERE orden = $1', [eventoAsistido]);
+    eventosSinDiploma = [{ orden: eventoAsistido, fecha: new Date().toISOString().slice(0, 10), ciclo: evRows[0]?.ciclo_actual || null }];
+  }
 
   if (b.participante_id) {
     // Caso "ya existía": no se duplican datos personales, solo se enlaza.
@@ -128,25 +184,62 @@ router.post('/', requireModulo('diplomas', 'edicion'), async (req, res) => {
     if (!existe[0]) return res.status(404).json({ error: 'El participante enlazado no existe.' });
 
     const { rows } = await query(
-      `INSERT INTO participantes_excepcion (participante_id, nivel_completado, eventos_sin_diploma, nota, creado_por)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [b.participante_id, nivelCompletado, JSON.stringify(eventosSinDiploma), b.nota || null, req.user.id]
+      `INSERT INTO participantes_excepcion (participante_id, eventos_sin_diploma, nota, creado_por)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [b.participante_id, JSON.stringify(eventosSinDiploma), b.nota || null, req.user.id]
     );
     return res.status(201).json(rows[0]);
   }
 
   // Caso "nunca existió": se guardan todos los datos aquí mismo.
-  if (!b.nombre_completo || !b.dni) return res.status(400).json({ error: 'Nombre y DNI son obligatorios.' });
+  // El DNI es obligatorio pero SIN validar formato/longitud fija — hay casos de extranjeros
+  // con identidades distintas a los 13 dígitos hondureños. Solo se exige un mínimo razonable
+  // para atrapar errores de digitación (ej. "123"). El formato estricto (13 dígitos, si aplica)
+  // ya se validó del lado del frontend según el checkbox "Es extranjero".
+  if (!b.nombre_completo || !b.dni || String(b.dni).trim().length < 5) {
+    return res.status(400).json({ error: 'Nombre y DNI son obligatorios (el DNI debe tener al menos 5 caracteres).' });
+  }
   const datos = { ...b };
   datos.nombre_completo = normalizarNombre(b.nombre_completo);
   if (b.capitulo) datos.capitulo = normalizarNombre(b.capitulo);
   if (b.contacto_emergencia_nombre) datos.contacto_emergencia_nombre = normalizarNombre(b.contacto_emergencia_nombre);
 
+  // Regla real (no depende del checkbox de extranjero): si nunca existió y el nivel/ciclo
+  // ACTUAL activo es Nivel I, no hay ningún requisito previo que pueda faltarle — Nivel I es
+  // el punto de partida para todos. En ese caso se crea DIRECTO en Participantes, inscrito
+  // en Nivel I, sin pasar nunca por la tabla de excepción.
+  const { rows: eventoActualRows } = await query('SELECT id, orden, ciclo_actual FROM eventos WHERE es_actual = TRUE LIMIT 1');
+  const eventoActual = eventoActualRows[0];
+
+  if (eventoActual && eventoActual.orden === 1) {
+    const colsDirecto = CAMPOS_PROPIOS.filter(c => datos[c] !== undefined && datos[c] !== '');
+    const valoresDirecto = colsDirecto.map(c => datos[c]);
+    try {
+      const { rows: creado } = await query(
+        `INSERT INTO participantes (${colsDirecto.join(', ')}) VALUES (${colsDirecto.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
+        valoresDirecto
+      );
+      await query(
+        `INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,'admin',$3)
+         ON CONFLICT (participante_id, evento_id) DO NOTHING`,
+        [creado[0].id, eventoActual.id, eventoActual.ciclo_actual]
+      );
+      return res.status(201).json({
+        directo: true,
+        participante_id: creado[0].id,
+        mensaje: 'El nivel actual es Nivel I — no aplica en Sin Requisitos. Se creó directo en Participantes, inscrito en Nivel I.'
+      });
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Ya existe un participante con ese DNI/identidad. Revisa antes de registrar de nuevo.' });
+      throw e;
+    }
+  }
+
   const cols = CAMPOS_PROPIOS.filter(c => datos[c] !== undefined && datos[c] !== '');
-  cols.push('nivel_completado', 'eventos_sin_diploma', 'nota', 'creado_por');
+  cols.push('eventos_sin_diploma', 'nota', 'creado_por');
   const valores = [
     ...CAMPOS_PROPIOS.filter(c => datos[c] !== undefined && datos[c] !== '').map(c => datos[c]),
-    nivelCompletado, JSON.stringify(eventosSinDiploma), b.nota || null, req.user.id
+    JSON.stringify(eventosSinDiploma), b.nota || null, req.user.id
   ];
   const marcadores = valores.map((_, i) => `$${i + 1}`).join(', ');
   const { rows } = await query(
@@ -156,32 +249,69 @@ router.post('/', requireModulo('diplomas', 'edicion'), async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// PUT /api/admin/participantes-excepcion/:id -> actualizar nivel_completado / nota
+// PUT /api/admin/participantes-excepcion/:id -> actualizar nota y/o datos personales.
+// Si está enlazado a un participante real (participante_id), los datos personales se
+// actualizan en la tabla "participantes" (es la fuente real). Si nunca existió, se
+// actualizan aquí mismo en participantes_excepcion.
 router.put('/:id', requireModulo('diplomas', 'edicion'), async (req, res) => {
   const b = req.body || {};
-  const cols = [];
-  const valores = [];
-  if (b.nivel_completado !== undefined) { cols.push('nivel_completado'); valores.push(parseInt(b.nivel_completado, 10) || 0); }
-  if (b.nota !== undefined) { cols.push('nota'); valores.push(b.nota); }
-  if (cols.length === 0) return res.status(400).json({ error: 'Nada para actualizar.' });
-  const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
-  valores.push(req.params.id);
-  const { rows } = await query(
-    `UPDATE participantes_excepcion SET ${setClause}, actualizado_en = now() WHERE id = $${valores.length} RETURNING *`,
-    valores
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'No encontrado.' });
+  const { rows: filaActual } = await query('SELECT participante_id FROM participantes_excepcion WHERE id = $1', [req.params.id]);
+  if (!filaActual[0]) return res.status(404).json({ error: 'No encontrado.' });
+
+  const datos = { ...b };
+  if (datos.nombre_completo) datos.nombre_completo = normalizarNombre(datos.nombre_completo);
+  if (datos.capitulo) datos.capitulo = normalizarNombre(datos.capitulo);
+  if (datos.contacto_emergencia_nombre) datos.contacto_emergencia_nombre = normalizarNombre(datos.contacto_emergencia_nombre);
+
+  const camposPersonales = CAMPOS_PROPIOS.filter(c => datos[c] !== undefined);
+  if (camposPersonales.length > 0) {
+    if (datos.dni !== undefined && String(datos.dni).trim().length < 5) {
+      return res.status(400).json({ error: 'El DNI debe tener al menos 5 caracteres.' });
+    }
+    const tabla = filaActual[0].participante_id ? 'participantes' : 'participantes_excepcion';
+    const idDestino = filaActual[0].participante_id || req.params.id;
+    const setClause = camposPersonales.map((c, i) => `${c} = $${i + 1}`).join(', ');
+    const valores = [...camposPersonales.map(c => datos[c]), idDestino];
+    await query(`UPDATE ${tabla} SET ${setClause} WHERE id = $${valores.length}`, valores);
+  }
+
+  if (b.nota !== undefined) {
+    await query('UPDATE participantes_excepcion SET nota = $1, actualizado_en = now() WHERE id = $2', [b.nota, req.params.id]);
+  } else if (camposPersonales.length > 0) {
+    await query('UPDATE participantes_excepcion SET actualizado_en = now() WHERE id = $1', [req.params.id]);
+  }
+
+  if (camposPersonales.length === 0 && b.nota === undefined) return res.status(400).json({ error: 'Nada para actualizar.' });
+  const { rows } = await query('SELECT * FROM participantes_excepcion WHERE id = $1', [req.params.id]);
   res.json(rows[0]);
 });
 
-// POST /api/admin/participantes-excepcion/:id/eventos -> agrega un evento más asistido sin diploma
+// POST /api/admin/participantes-excepcion/:id/eventos -> agrega un evento más asistido sin
+// diploma. Guarda también el ciclo activo de ese evento en ese momento, para poder mostrarlo
+// después en la vista de "Niveles inscritos".
 router.post('/:id/eventos', requireModulo('diplomas', 'edicion'), async (req, res) => {
   const orden = parseInt(req.body?.orden, 10);
   if (!orden) return res.status(400).json({ error: 'Falta el número de evento.' });
   const { rows } = await query('SELECT eventos_sin_diploma FROM participantes_excepcion WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'No encontrado.' });
+  const { rows: evRows } = await query('SELECT ciclo_actual FROM eventos WHERE orden = $1', [orden]);
   const lista = rows[0].eventos_sin_diploma || [];
-  lista.push({ orden, fecha: new Date().toISOString().slice(0, 10) });
+  if (lista.some(e => e.orden === orden)) return res.status(409).json({ error: 'Ya tiene registrado ese evento.' });
+  lista.push({ orden, fecha: new Date().toISOString().slice(0, 10), ciclo: evRows[0]?.ciclo_actual || null });
+  const { rows: actualizado } = await query(
+    'UPDATE participantes_excepcion SET eventos_sin_diploma = $1, actualizado_en = now() WHERE id = $2 RETURNING *',
+    [JSON.stringify(lista), req.params.id]
+  );
+  res.json(actualizado[0]);
+});
+
+// DELETE /api/admin/participantes-excepcion/:id/eventos/:orden -> quita un evento sin
+// diploma que se agregó por error. Solo afecta esta lista, nunca toca inscripciones reales.
+router.delete('/:id/eventos/:orden', requireModulo('diplomas', 'edicion'), async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const { rows } = await query('SELECT eventos_sin_diploma FROM participantes_excepcion WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'No encontrado.' });
+  const lista = (rows[0].eventos_sin_diploma || []).filter(e => e.orden !== orden);
   const { rows: actualizado } = await query(
     'UPDATE participantes_excepcion SET eventos_sin_diploma = $1, actualizado_en = now() WHERE id = $2 RETURNING *',
     [JSON.stringify(lista), req.params.id]
@@ -199,13 +329,18 @@ router.delete('/:id', requireModulo('diplomas', 'edicion'), async (req, res) => 
 });
 
 // POST /api/admin/participantes-excepcion/:id/trasladar -> Carlos autoriza el traslado
-// manual a la tabla participantes real (crea si nunca existió, actualiza si ya existía),
-// e inscribe en los eventos que había asistido sin diploma. Siempre borra de la tabla de
-// excepción al terminar.
+// manual a la tabla participantes real. SOLO se permite si los 4 niveles tienen evidencia
+// real (graduado o asistido sin diploma) — nunca por un número escrito a mano.
 router.post('/:id/trasladar', requireModulo('diplomas', 'edicion'), async (req, res) => {
   const { rows } = await query('SELECT * FROM participantes_excepcion WHERE id = $1', [req.params.id]);
   const excepcion = rows[0];
   if (!excepcion) return res.status(404).json({ error: 'No encontrado.' });
+
+  const [conNiveles] = await calcularNivelesParaFilas([normalizarFila(excepcion, null)]);
+  if (!conNiveles.listo_para_trasladar) {
+    const faltantes = conNiveles.niveles.filter(n => !n.completo).map(n => n.orden).join(', ');
+    return res.status(409).json({ error: `Todavía faltan niveles con evidencia real: Nivel(es) ${faltantes}. No se puede trasladar hasta completar los 4.` });
+  }
 
   let participanteId = excepcion.participante_id;
 
@@ -233,7 +368,7 @@ router.post('/:id/trasladar', requireModulo('diplomas', 'edicion'), async (req, 
     await query(
       `INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo)
        VALUES ($1,$2,'admin',$3) ON CONFLICT (participante_id, evento_id) DO NOTHING`,
-      [participanteId, evRows[0].id, evRows[0].ciclo_actual]
+      [participanteId, evRows[0].id, ev.ciclo || evRows[0].ciclo_actual]
     );
   }
 
@@ -246,8 +381,7 @@ router.get('/excel', async (req, res) => {
   const datos = filas.map((f, i) => {
     const fila = { '#': i + 1 };
     for (const c of CAMPOS_PROPIOS) fila[TITULOS_EXPORT[c]] = f[c] ?? '';
-    fila[TITULOS_EXPORT.nivel_completado] = f.nivel_completado;
-    fila[TITULOS_EXPORT.nivel_pendiente] = f.nivel_pendiente;
+    fila[TITULOS_EXPORT.niveles_resumen] = f.niveles.filter(n => n.completo).map(n => n.orden).join(', ') || 'Ninguno';
     fila[TITULOS_EXPORT.eventos_sin_diploma] = (f.eventos_sin_diploma || []).map(e => `Nivel ${e.orden} (${e.fecha})`).join(', ');
     fila[TITULOS_EXPORT.nota] = f.nota || '';
     return fila;
@@ -263,7 +397,7 @@ router.get('/excel', async (req, res) => {
 
 router.get('/pdf', async (req, res) => {
   const filas = await listarConDatos();
-  const columnas = ['nombre_completo', 'dni', 'capitulo', 'nivel_completado', 'nivel_pendiente', 'eventos_sin_diploma', 'nota'];
+  const columnas = ['nombre_completo', 'dni', 'capitulo', 'niveles_resumen', 'eventos_sin_diploma', 'nota'];
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="participantes_sin_requisitos.pdf"');
@@ -277,6 +411,7 @@ router.get('/pdf', async (req, res) => {
   const anchoCol = anchoDisponible / (columnas.length + 1);
   const valorTexto = (clave, f) => {
     if (clave === 'eventos_sin_diploma') return (f.eventos_sin_diploma || []).map(e => `N${e.orden}`).join(', ') || '—';
+    if (clave === 'niveles_resumen') return f.niveles.filter(n => n.completo).map(n => `N${n.orden}`).join(', ') || 'Ninguno';
     return f[clave] ?? '—';
   };
   const dibujarFila = (valores, negrita) => {

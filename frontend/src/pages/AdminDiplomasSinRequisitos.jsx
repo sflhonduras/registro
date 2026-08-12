@@ -24,9 +24,53 @@ function Campo({ label, children, requerido = true }) {
   );
 }
 
+// Vista de "Niveles inscritos" — igual patrón que en Participantes normal, pero combinando
+// dos fuentes: inscripciones reales graduadas (si la persona ya existía) + eventos asistidos
+// sin diploma guardados en esta ficha. El sistema hala esta información sola, nunca se
+// escribe a mano.
+function NivelesInscritos({ niveles, onEliminar }) {
+  if (!niveles) return <p className="text-sm text-ink/40">Cargando niveles…</p>;
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        {niveles.map(n => (
+          <span key={n.orden}
+            className={`rounded-full px-3 py-1 text-sm font-medium ${
+              n.completo
+                ? (n.fuente === 'graduado' ? 'bg-palm/15 text-palm' : 'bg-gold/15 text-gold')
+                : 'bg-ink/5 text-ink/40'
+            }`}>
+            Nivel {n.orden} {n.completo && '✓'}
+          </span>
+        ))}
+      </div>
+      <div className="mt-3 space-y-1.5">
+        {niveles.map(n => (
+          <div key={n.orden} className="flex items-center justify-between gap-2 rounded-lg bg-parchment-2 px-3 py-2 text-xs text-ink/60">
+            <span>
+              <strong className="text-ink/80">Nivel {n.orden}:</strong>{' '}
+              {n.completo
+                ? (n.fuente === 'graduado'
+                    ? `graduado realmente (${n.fecha ? new Date(n.fecha).toLocaleDateString('es-HN', { timeZone: 'UTC' }) : '—'})${n.promocion ? `, promoción ${n.promocion}` : ''}`
+                    : `asistido sin diploma (${n.fecha ? new Date(n.fecha).toLocaleDateString('es-HN', { timeZone: 'UTC' }) : '—'})${n.ciclo ? `, ciclo ${n.ciclo}` : ''}`)
+                : 'sin evidencia todavía'}
+            </span>
+            {n.completo && n.fuente === 'sin_diploma' && onEliminar && (
+              <button onClick={() => onEliminar(n.orden)} className="shrink-0 font-semibold text-ember hover:underline">
+                Quitar
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Modal paso a paso: DNI -> (si existe, historial) -> formulario de datos que falten -> guardar
 function ModalRegistrar({ onCerrar, onGuardado }) {
   const [paso, setPaso] = useState('dni'); // 'dni' | 'historial' | 'formulario'
+  const [esExtranjero, setEsExtranjero] = useState(false);
   const [dniConsulta, setDniConsulta] = useState('');
   const [verificando, setVerificando] = useState(false);
   const [errorDni, setErrorDni] = useState('');
@@ -34,8 +78,8 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
   const [inscripcionesExistente, setInscripcionesExistente] = useState([]);
 
   const [form, setForm] = useState(VACIO);
-  const [nivelCompletado, setNivelCompletado] = useState(0);
-  const [eventoAsistido, setEventoAsistido] = useState('2');
+  // Sin valor por defecto: el usuario debe elegir a propósito, nunca queda algo preseleccionado.
+  const [eventoAsistido, setEventoAsistido] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -48,7 +92,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
     e.preventDefault();
     setErrorDni(''); setVerificando(true);
     try {
-      const { data } = await api.get(`/admin/participantes-excepcion/verificar/${dniConsulta}`);
+      const { data } = await api.get(`/admin/participantes-excepcion/verificar/${encodeURIComponent(dniConsulta)}`);
       if (!data.existe) {
         setForm(f => ({ ...f, dni: dniConsulta }));
         setPaso('formulario');
@@ -72,7 +116,6 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
       const evento = eventoAsistido ? parseInt(eventoAsistido, 10) : null;
       await api.post('/admin/participantes-excepcion', {
         participante_id: participanteExistente.id,
-        nivel_completado: nivelCompletado,
         evento_asistido: evento,
         nota
       });
@@ -89,15 +132,17 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
     setGuardando(true); setError('');
     try {
       const evento = eventoAsistido ? parseInt(eventoAsistido, 10) : null;
-      await api.post('/admin/participantes-excepcion', {
+      const { data } = await api.post('/admin/participantes-excepcion', {
         ...form,
         tiempo_comparte_testimonio: form.comparte_testimonio === 'Si'
           ? `${form.tiempo_comparte_cantidad} ${form.tiempo_comparte_unidad}`
           : null,
-        nivel_completado: nivelCompletado,
         evento_asistido: evento,
         nota
       });
+      if (data?.directo) {
+        alert(data.mensaje);
+      }
       onGuardado();
     } catch (err) {
       setError(mensajeError(err));
@@ -119,10 +164,28 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
             <p className="text-sm text-ink/60">
               Primero verificamos si esta persona ya está en el sistema, para no duplicar sus datos.
             </p>
-            <Campo label="Número de identidad (DNI)">
-              <input required inputMode="numeric" className={claseInput} value={dniConsulta}
-                onChange={e => setDniConsulta(e.target.value.replace(/[^\d]/g, ''))} placeholder="0801199912345" />
-            </Campo>
+
+            <label className="flex items-center gap-2 rounded-lg border border-ink/15 bg-parchment-2 px-3.5 py-2.5 text-sm">
+              <input type="checkbox" checked={esExtranjero}
+                onChange={e => { setEsExtranjero(e.target.checked); setDniConsulta(''); }} />
+              <span className="text-ink/80">¿Es extranjero o tiene identificación distinta al DNI hondureño?</span>
+            </label>
+
+            {esExtranjero ? (
+              <Campo label="Número de identidad (pasaporte u otro documento)">
+                <input required minLength={5} className={claseInput} value={dniConsulta}
+                  onChange={e => setDniConsulta(e.target.value)} placeholder="Ej. pasaporte" />
+                <p className="mt-1 text-xs text-ink/40">Sin formato fijo — admite identidades de extranjeros.</p>
+              </Campo>
+            ) : (
+              <Campo label="Número de identidad (DNI)">
+                <input required inputMode="numeric" pattern="\d{13}" title="El DNI debe tener exactamente 13 dígitos"
+                  className={claseInput} value={dniConsulta}
+                  onChange={e => setDniConsulta(e.target.value.replace(/[^\d]/g, '').slice(0, 13))} placeholder="0801199912345" />
+                <p className="mt-1 text-xs text-ink/40">13 dígitos exactos.</p>
+              </Campo>
+            )}
+
             {errorDni && <p className="rounded-lg bg-ember/10 p-3 text-sm text-ember">{errorDni}</p>}
             <button disabled={verificando} className="w-full rounded-full bg-gold py-3 font-semibold text-night hover:bg-gold-light disabled:opacity-60">
               {verificando ? 'Verificando…' : 'Verificar DNI'}
@@ -149,25 +212,16 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
             </div>
             <p className="text-xs text-ink/50">
               Si el historial confirma que en realidad sí cumple el requisito, ciérralo aquí e inscríbelo directo y normal desde Participantes.
+              El nivel completado ya no se escribe a mano — el sistema lo calcula solo, cruzando este historial con los eventos que asista de aquí en adelante.
             </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Campo label="Nivel que ya tiene completado (0 si ninguno)">
-                <select className={claseInput} value={nivelCompletado} onChange={e => setNivelCompletado(parseInt(e.target.value, 10))}>
-                  <option value={0}>0 — Ninguno</option>
-                  <option value={1}>1 — Nivel I</option>
-                  <option value={2}>2 — Nivel II</option>
-                  <option value={3}>3 — Nivel III</option>
-                </select>
-              </Campo>
-              <Campo label="Evento al que asiste ahora sin diploma" requerido={false}>
-                <select className={claseInput} value={eventoAsistido} onChange={e => setEventoAsistido(e.target.value)}>
-                  <option value="">No aplica todavía</option>
-                  <option value="2">Nivel II</option>
-                  <option value="3">Nivel III</option>
-                  <option value="4">Nivel IV</option>
-                </select>
-              </Campo>
-            </div>
+            <Campo label="Evento al que asiste ahora sin diploma" requerido={false}>
+              <select className={claseInput} value={eventoAsistido} onChange={e => setEventoAsistido(e.target.value)}>
+                <option value="">No aplica todavía</option>
+                <option value="2">Nivel II</option>
+                <option value="3">Nivel III</option>
+                <option value="4">Nivel IV</option>
+              </select>
+            </Campo>
             <Campo label="Nota / observación" requerido={false}>
               <textarea rows={2} className={claseInput} value={nota} onChange={e => setNota(e.target.value)} placeholder="Opcional" />
             </Campo>
@@ -243,15 +297,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
               </Campo>
             </div>
 
-            <div className="grid gap-4 border-t border-ink/10 pt-4 sm:grid-cols-2">
-              <Campo label="Nivel que ya tiene completado (0 si ninguno)">
-                <select className={claseInput} value={nivelCompletado} onChange={e => setNivelCompletado(parseInt(e.target.value, 10))}>
-                  <option value={0}>0 — Ninguno</option>
-                  <option value={1}>1 — Nivel I</option>
-                  <option value={2}>2 — Nivel II</option>
-                  <option value={3}>3 — Nivel III</option>
-                </select>
-              </Campo>
+            <div className="border-t border-ink/10 pt-4">
               <Campo label="Evento al que asiste ahora sin diploma" requerido={false}>
                 <select className={claseInput} value={eventoAsistido} onChange={e => setEventoAsistido(e.target.value)}>
                   <option value="">No aplica todavía</option>
@@ -280,17 +326,35 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
 }
 
 function ModalEditar({ fila, onCerrar, onGuardado }) {
-  const [nivelCompletado, setNivelCompletado] = useState(fila.nivel_completado);
+  const [niveles, setNiveles] = useState(fila.niveles || null);
+  const [listoParaTrasladar, setListoParaTrasladar] = useState(fila.listo_para_trasladar || false);
   const [nota, setNota] = useState(fila.nota || '');
   const [evento, setEvento] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [agregandoEvento, setAgregandoEvento] = useState(false);
   const [error, setError] = useState('');
+  const [editandoDatos, setEditandoDatos] = useState(false);
+  const [datos, setDatos] = useState({
+    nombre_completo: fila.nombre_completo || '', dni: fila.dni || '', celular: fila.celular || '',
+    capitulo: fila.capitulo || '', zona: fila.zona || '', departamento: fila.departamento || '', municipio: fila.municipio || '',
+    cargo_fihnec: fila.cargo_fihnec || '', estado_civil: fila.estado_civil || '', hijos_cantidad: fila.hijos_cantidad ?? '',
+    contacto_emergencia_nombre: fila.contacto_emergencia_nombre || '', contacto_emergencia_telefono: fila.contacto_emergencia_telefono || ''
+  });
+  const setDato = (campo) => (e) => setDatos(d => ({ ...d, [campo]: e.target.value }));
+  const cambiarDepartamentoDatos = (e) => setDatos(d => ({ ...d, departamento: e.target.value, municipio: '' }));
+  const municipiosDisponiblesDatos = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[datos.departamento] || [], [datos.departamento]);
 
-  const guardar = async () => {
+  const refrescarNiveles = async () => {
+    const { data } = await api.get(`/admin/participantes-excepcion/${fila.id}/niveles`);
+    setNiveles(data.niveles);
+    setListoParaTrasladar(data.listo_para_trasladar);
+  };
+  useEffect(() => { refrescarNiveles(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const guardarNota = async () => {
     setGuardando(true); setError('');
     try {
-      await api.put(`/admin/participantes-excepcion/${fila.id}`, { nivel_completado: nivelCompletado, nota });
-      if (evento) await api.post(`/admin/participantes-excepcion/${fila.id}/eventos`, { orden: parseInt(evento, 10) });
+      await api.put(`/admin/participantes-excepcion/${fila.id}`, { nota });
       onGuardado();
     } catch (err) {
       setError(mensajeError(err));
@@ -299,7 +363,45 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
     }
   };
 
-  const listoParaTrasladar = nivelCompletado >= 3;
+  const guardarDatos = async () => {
+    setGuardando(true); setError('');
+    try {
+      await api.put(`/admin/participantes-excepcion/${fila.id}`, datos);
+      setEditandoDatos(false);
+      onGuardado();
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const agregarEvento = async () => {
+    if (!evento) return;
+    setAgregandoEvento(true); setError('');
+    try {
+      await api.post(`/admin/participantes-excepcion/${fila.id}/eventos`, { orden: parseInt(evento, 10) });
+      setEvento('');
+      await refrescarNiveles();
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setAgregandoEvento(false);
+    }
+  };
+
+  const eliminarEvento = async (orden) => {
+    if (!confirm(`¿Quitar el Nivel ${orden} de "asistido sin diploma"? Esto no afecta a la persona en ningún otro módulo, solo corrige este registro.`)) return;
+    setAgregandoEvento(true); setError('');
+    try {
+      await api.delete(`/admin/participantes-excepcion/${fila.id}/eventos/${orden}`);
+      await refrescarNiveles();
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setAgregandoEvento(false);
+    }
+  };
 
   const trasladar = async () => {
     if (!confirm(`¿Confirmas que ${fila.nombre_completo} ya se puso al día y quieres trasladarlo a Participantes? Esto lo crea/actualiza en Participantes y lo quita de esta lista.`)) return;
@@ -322,10 +424,13 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
           <button onClick={onCerrar} className="text-ink/40 hover:text-ink">✕</button>
         </div>
         <p className="mt-1 text-sm text-ink/50">DNI: {fila.dni || '—'} · Capítulo: {fila.capitulo || '—'}</p>
+        {fila.participante_id && (
+          <p className="mt-1 text-xs text-gold">Enlazado a un participante real — editar aquí actualiza su registro en Participantes.</p>
+        )}
 
         {listoParaTrasladar && (
           <div className="mt-4 rounded-xl border border-palm/30 bg-palm/10 p-4">
-            <p className="text-sm font-semibold text-palm">✅ Ya completó lo que le faltaba (Nivel III o más).</p>
+            <p className="text-sm font-semibold text-palm">✅ Los 4 niveles ya tienen evidencia real.</p>
             <p className="mt-1 text-xs text-ink/60">Confirma con Carlos y traslada este registro a Participantes cuando esté listo.</p>
             <button onClick={trasladar} disabled={guardando} className="mt-3 rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light disabled:opacity-60">
               {guardando ? 'Procesando…' : '→ Trasladar a Participantes'}
@@ -333,32 +438,117 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
           </div>
         )}
 
-        <div className="mt-5 space-y-4">
-          <div>
-            <p className="mb-2 text-sm font-medium text-ink/70">Eventos asistidos sin diploma hasta ahora</p>
-            {(fila.eventos_sin_diploma || []).length === 0 && <p className="text-sm text-ink/40">Ninguno todavía.</p>}
-            <ul className="space-y-1">
-              {(fila.eventos_sin_diploma || []).map((e, idx) => (
-                <li key={idx} className="rounded-lg bg-parchment-2 px-3 py-1.5 text-sm text-ink/70">Nivel {numeroARomano(e.orden)} ({e.fecha})</li>
-              ))}
-            </ul>
+        <div className="mt-5">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-ink/70">Datos personales</p>
+            <button onClick={() => setEditandoDatos(v => !v)} className="text-sm font-semibold text-gold hover:underline">
+              {editandoDatos ? 'Cancelar edición' : 'Editar datos'}
+            </button>
           </div>
-          <Campo label="Actualizar nivel completado (Carlos actualiza cada vez que se pone al corriente)">
-            <select className={claseInput} value={nivelCompletado} onChange={e => setNivelCompletado(parseInt(e.target.value, 10))}>
-              <option value={0}>0 — Ninguno</option>
-              <option value={1}>1 — Nivel I</option>
-              <option value={2}>2 — Nivel II</option>
-              <option value={3}>3 — Nivel III</option>
-            </select>
-          </Campo>
-          <Campo label="Agregar evento nuevo asistido sin diploma" requerido={false}>
-            <select className={claseInput} value={evento} onChange={e => setEvento(e.target.value)}>
-              <option value="">No agregar ninguno ahora</option>
-              <option value="2">Nivel II</option>
-              <option value="3">Nivel III</option>
-              <option value="4">Nivel IV</option>
-            </select>
-          </Campo>
+
+          {!editandoDatos && (
+            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg bg-parchment-2 p-3 text-xs text-ink/60">
+              <p><strong className="text-ink/80">Nombre:</strong> {fila.nombre_completo || '—'}</p>
+              <p><strong className="text-ink/80">DNI:</strong> {fila.dni || '—'}</p>
+              <p><strong className="text-ink/80">Celular:</strong> {fila.celular || '—'}</p>
+              <p><strong className="text-ink/80">Capítulo:</strong> {fila.capitulo || '—'}</p>
+              <p><strong className="text-ink/80">Zona:</strong> {fila.zona || '—'}</p>
+              <p><strong className="text-ink/80">Departamento:</strong> {fila.departamento || '—'}</p>
+              <p><strong className="text-ink/80">Municipio:</strong> {fila.municipio || '—'}</p>
+              <p><strong className="text-ink/80">Cargo:</strong> {fila.cargo_fihnec || '—'}</p>
+              <p><strong className="text-ink/80">Estado civil:</strong> {fila.estado_civil || '—'}</p>
+              <p><strong className="text-ink/80">Hijos:</strong> {fila.hijos_cantidad ?? '—'}</p>
+              <p><strong className="text-ink/80">Emergencia:</strong> {fila.contacto_emergencia_nombre || '—'}</p>
+              <p><strong className="text-ink/80">Tel. emergencia:</strong> {fila.contacto_emergencia_telefono || '—'}</p>
+            </div>
+          )}
+
+          {editandoDatos && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Campo label="Nombre completo">
+                <input className={claseInput} value={datos.nombre_completo} onChange={setDato('nombre_completo')} />
+              </Campo>
+              <Campo label="DNI">
+                <input className={claseInput} value={datos.dni} onChange={setDato('dni')} />
+              </Campo>
+              <Campo label="Celular" requerido={false}>
+                <input className={claseInput} value={datos.celular} onChange={setDato('celular')} />
+              </Campo>
+              <Campo label="Capítulo" requerido={false}>
+                <input className={claseInput} value={datos.capitulo} onChange={setDato('capitulo')} />
+              </Campo>
+              <Campo label="Zona" requerido={false}>
+                <select className={claseInput} value={datos.zona} onChange={setDato('zona')}>
+                  <option value="">Selecciona…</option>
+                  {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Departamento" requerido={false}>
+                <select className={claseInput} value={datos.departamento} onChange={cambiarDepartamentoDatos}>
+                  <option value="">Selecciona…</option>
+                  {DEPARTAMENTOS_HONDURAS.map(d => <option key={d}>{d}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Municipio" requerido={false}>
+                <select className={claseInput} value={datos.municipio} onChange={setDato('municipio')} disabled={!datos.departamento}>
+                  <option value="">{datos.departamento ? 'Selecciona…' : 'Elige un departamento'}</option>
+                  {municipiosDisponiblesDatos.map(m => <option key={m}>{m}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Cargo en FIHNEC" requerido={false}>
+                <select className={claseInput} value={datos.cargo_fihnec} onChange={setDato('cargo_fihnec')}>
+                  <option value="">Selecciona…</option>
+                  {CARGOS_FIHNEC.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Estado civil" requerido={false}>
+                <select className={claseInput} value={datos.estado_civil} onChange={setDato('estado_civil')}>
+                  <option value="">Selecciona…</option>
+                  {['Soltero', 'Casado', 'Unión libre', 'Divorciado', 'Viudo'].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Cantidad de hijos" requerido={false}>
+                <input type="number" min="0" className={claseInput} value={datos.hijos_cantidad} onChange={setDato('hijos_cantidad')} />
+              </Campo>
+              <Campo label="Contacto de emergencia" requerido={false}>
+                <input className={claseInput} value={datos.contacto_emergencia_nombre} onChange={setDato('contacto_emergencia_nombre')} />
+              </Campo>
+              <Campo label="Teléfono de emergencia" requerido={false}>
+                <input className={claseInput} value={datos.contacto_emergencia_telefono} onChange={setDato('contacto_emergencia_telefono')} />
+              </Campo>
+              <div className="sm:col-span-2">
+                <button onClick={guardarDatos} disabled={guardando}
+                  className="w-full rounded-full bg-gold py-2.5 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
+                  {guardando ? 'Guardando…' : 'Guardar datos personales'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 space-y-5 border-t border-ink/10 pt-5">
+          <div>
+            <p className="mb-2 text-sm font-medium text-ink/70">Niveles inscritos</p>
+            <p className="mb-2 text-xs text-ink/40">Se calcula solo, cruzando graduaciones reales (si ya existía) con los eventos que asista sin diploma. No se edita a mano.</p>
+            <NivelesInscritos niveles={niveles} onEliminar={eliminarEvento} />
+          </div>
+
+          <div className="flex items-end gap-2">
+            <Campo label="Agregar evento nuevo asistido sin diploma" requerido={false}>
+              <select className={claseInput} value={evento} onChange={e => setEvento(e.target.value)}>
+                <option value="">Selecciona un nivel…</option>
+                <option value="1">Nivel I</option>
+                <option value="2">Nivel II</option>
+                <option value="3">Nivel III</option>
+                <option value="4">Nivel IV</option>
+              </select>
+            </Campo>
+            <button onClick={agregarEvento} disabled={!evento || agregandoEvento}
+              className="mb-0.5 shrink-0 rounded-full border border-gold/40 px-4 py-2.5 text-sm font-semibold text-gold hover:bg-gold/10 disabled:opacity-50">
+              {agregandoEvento ? 'Agregando…' : '+ Agregar'}
+            </button>
+          </div>
+
           <Campo label="Nota / observación" requerido={false}>
             <textarea rows={2} className={claseInput} value={nota} onChange={e => setNota(e.target.value)} />
           </Campo>
@@ -367,8 +557,8 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
         {error && <p className="mt-4 rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
         <div className="mt-6 flex justify-end gap-3">
           <button onClick={onCerrar} className="rounded-full px-5 py-2 text-sm font-medium text-ink/60 hover:bg-ink/5">Cerrar</button>
-          <button onClick={guardar} disabled={guardando} className="rounded-full bg-gold px-6 py-2 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
-            {guardando ? 'Guardando…' : 'Guardar cambios'}
+          <button onClick={guardarNota} disabled={guardando} className="rounded-full bg-gold px-6 py-2 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
+            {guardando ? 'Guardando…' : 'Guardar nota'}
           </button>
         </div>
       </div>
@@ -454,13 +644,12 @@ export default function AdminDiplomasSinRequisitos() {
               <th className="px-4 py-3">Nombre Completo</th>
               <th className="px-4 py-3">DNI</th>
               <th className="px-4 py-3">Capítulo</th>
-              <th className="px-4 py-3 text-center">Nivel Completado</th>
-              <th className="px-4 py-3">Eventos Sin Diploma</th>
+              <th className="px-4 py-3 text-center">Niveles con evidencia</th>
               <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={6} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
             {!cargando && datos.map(f => (
               <tr key={f.id} className="border-t border-ink/5">
                 <td className="px-4 py-2.5 font-medium text-ink">
@@ -470,12 +659,19 @@ export default function AdminDiplomasSinRequisitos() {
                 <td className="px-4 py-2.5 text-ink/60">{f.dni || '—'}</td>
                 <td className="px-4 py-2.5 text-ink/60">{f.capitulo || '—'}</td>
                 <td className="px-4 py-2.5 text-center">
-                  <span className={f.nivel_completado >= 3 ? 'font-semibold text-palm' : 'text-ink/60'}>
-                    {f.nivel_completado} de 3
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-ink/60">
-                  {(f.eventos_sin_diploma || []).map(e => `N${e.orden}`).join(', ') || '—'}
+                  <div className="inline-flex items-center gap-1.5">
+                    {(f.niveles || []).map(n => (
+                      <span key={n.orden} title={`Nivel ${n.orden}${n.completo ? ` — ${n.fuente === 'graduado' ? 'graduado' : 'asistido sin diploma'}` : ' — sin evidencia'}`}
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                          n.completo
+                            ? (n.fuente === 'graduado' ? 'bg-palm/20 text-palm' : 'bg-gold/20 text-gold')
+                            : 'bg-ink/5 text-ink/30'
+                        }`}>
+                        {n.orden}
+                      </span>
+                    ))}
+                  </div>
+                  {f.listo_para_trasladar && <p className="mt-1 text-xs font-medium text-palm">Listo para trasladar</p>}
                 </td>
                 <td className="px-4 py-2.5 text-center">
                   <button onClick={() => setEditando(f)} className="text-gold hover:underline">Ver / editar</button>
@@ -484,7 +680,7 @@ export default function AdminDiplomasSinRequisitos() {
               </tr>
             ))}
             {!cargando && datos.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-ink/40">No hay participantes registrados en esta lista.</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">No hay participantes registrados en esta lista.</td></tr>
             )}
           </tbody>
         </table>

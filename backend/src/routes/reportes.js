@@ -149,18 +149,37 @@ async function construirConsulta(q) {
        ORDER BY pe.creado_en DESC`
     );
 
-    let filas = rows.map(r => ({
-      nombre_completo: r.participante_id ? r.p_nombre_completo : r.nombre_completo,
-      dni: r.participante_id ? r.p_dni : r.dni,
-      celular: r.participante_id ? r.p_celular : r.celular,
-      capitulo: r.participante_id ? r.p_capitulo : r.capitulo,
-      zona: r.participante_id ? r.p_zona : r.zona,
-      departamento: r.participante_id ? r.p_departamento : r.departamento,
-      nivel_completado: r.nivel_completado,
-      nivel_pendiente: r.nivel_completado + 1,
-      eventos_sin_diploma: (r.eventos_sin_diploma || []).map(e => `Nivel ${e.orden} (${e.fecha})`).join(', '),
-      nota: r.nota || ''
-    }));
+    // Igual que en el módulo: el nivel "completado" se calcula por evidencia real
+    // (graduación real, si estaba enlazado a un participante, o eventos sin diploma
+    // guardados aquí), nunca por un campo escrito a mano.
+    const idsConParticipante = rows.filter(r => r.participante_id).map(r => r.participante_id);
+    let inscripcionesPorParticipante = {};
+    if (idsConParticipante.length > 0) {
+      const { rows: insc } = await query(
+        `SELECT i.participante_id, e.orden FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+         WHERE i.participante_id = ANY($1::int[]) AND i.fecha_graduacion IS NOT NULL`,
+        [idsConParticipante]
+      );
+      for (const i of insc) (inscripcionesPorParticipante[i.participante_id] ??= new Set()).add(i.orden);
+    }
+
+    let filas = rows.map(r => {
+      const graduados = inscripcionesPorParticipante[r.participante_id] || new Set();
+      const sinDiploma = new Set((r.eventos_sin_diploma || []).map(e => e.orden));
+      const nivelesConEvidencia = [1, 2, 3, 4].filter(n => graduados.has(n) || sinDiploma.has(n));
+      return {
+        nombre_completo: r.participante_id ? r.p_nombre_completo : r.nombre_completo,
+        dni: r.participante_id ? r.p_dni : r.dni,
+        celular: r.participante_id ? r.p_celular : r.celular,
+        capitulo: r.participante_id ? r.p_capitulo : r.capitulo,
+        zona: r.participante_id ? r.p_zona : r.zona,
+        departamento: r.participante_id ? r.p_departamento : r.departamento,
+        niveles_con_evidencia: nivelesConEvidencia.join(', ') || 'Ninguno',
+        listo_para_trasladar: nivelesConEvidencia.length === 4 ? 'Sí' : 'No',
+        eventos_sin_diploma: (r.eventos_sin_diploma || []).map(e => `Nivel ${e.orden} (${e.fecha})`).join(', '),
+        nota: r.nota || ''
+      };
+    });
 
     filas = filas.filter(f => {
       if (q.zona && f.zona !== q.zona) return false;
@@ -178,8 +197,8 @@ async function construirConsulta(q) {
       { clave: 'nombre_completo', titulo: 'Nombre Completo' },
       { clave: 'dni', titulo: 'DNI' },
       { clave: 'capitulo', titulo: 'Capítulo' },
-      { clave: 'nivel_completado', titulo: 'Nivel Completado' },
-      { clave: 'nivel_pendiente', titulo: 'Nivel Pendiente' },
+      { clave: 'niveles_con_evidencia', titulo: 'Niveles Con Evidencia' },
+      { clave: 'listo_para_trasladar', titulo: '¿Listo para trasladar?' },
       { clave: 'eventos_sin_diploma', titulo: 'Eventos Asistidos Sin Diploma' },
       { clave: 'nota', titulo: 'Nota' }
     ];

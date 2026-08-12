@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import api, { mensajeError } from '../api';
 import {
   ZONAS_FIHNEC, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
-  FORMACION_OFICIAL, OTRAS_PARTICIPACIONES
+  FORMACION_OFICIAL, OTRAS_PARTICIPACIONES, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO
 } from '../listas';
 
 function calcularEdad(fechaNacimiento) {
@@ -32,6 +32,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const [form, setForm] = useState({
     cargos_desempenados: [], formacion_oficial: [], otras_participaciones: [],
     dias_asistencia: { viernes: true, sabado: true, domingo: true },
+    participara_evento: true,
     ...servidor
   });
   const inputFotoRef = useRef(null);
@@ -47,7 +48,8 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
         const { data } = await api.post('/admin/servidores', form);
         id = data.id;
       }
-      // Los 3 días viven aparte (tabla configuracion), en su propio endpoint.
+      // El interruptor maestro y los 3 días viven aparte, cada uno en su propio endpoint.
+      await api.put(`/admin/servidores/${id}/participacion`, { participa: form.participara_evento });
       await api.put(`/admin/servidores/${id}/dias-asistencia`, form.dias_asistencia);
       onGuardado();
     } catch (err) { setError(mensajeError(err)); } finally { setGuardando(false); }
@@ -56,6 +58,8 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const toggleDia = (dia) => setForm(f => ({ ...f, dias_asistencia: { ...f.dias_asistencia, [dia]: !f.dias_asistencia[dia] } }));
 
   const set = (clave) => (e) => setForm(f => ({ ...f, [clave]: e.target.value }));
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
 
   const campo = (clave, etiqueta, tipo = 'text') => (
     <label className="block text-sm">
@@ -128,6 +132,21 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
     lector.readAsDataURL(archivo);
   };
 
+  const [regenerandoPin, setRegenerandoPin] = useState(false);
+  const regenerarPin = async () => {
+    if (!form.id) return; // solo aplica a servidores ya guardados
+    if (!confirm('¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato.')) return;
+    setRegenerandoPin(true);
+    try {
+      const { data } = await api.post(`/admin/servidores/${form.id}/regenerar-pin`);
+      setForm(f => ({ ...f, pin: data.pin }));
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setRegenerandoPin(false);
+    }
+  };
+
   const edad = calcularEdad(form.fecha_nacimiento);
 
   return (
@@ -158,6 +177,21 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
               </p>
             </div>
           </div>
+
+          {form.id && (
+            <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-gold/30 bg-gold/5 px-4 py-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gold">PIN del Portal del Servidor</p>
+                <p className="mt-0.5 font-display text-lg font-bold tracking-[0.3em] text-ink">{form.pin || '----'}</p>
+                <p className="text-[11px] text-ink/40">Compártelo con él para que entre a sflhonduras.com/servidores/portal con su DNI.</p>
+              </div>
+              <button type="button" onClick={regenerarPin} disabled={regenerandoPin}
+                className="shrink-0 rounded-full border border-gold/40 px-4 py-1.5 text-xs font-semibold text-gold hover:bg-gold/10 disabled:opacity-50">
+                {regenerandoPin ? 'Generando…' : '↻ Regenerar'}
+              </button>
+            </div>
+          )}
+
           <div className="sm:col-span-2">{campo('nombre_completo', 'Nombre completo')}</div>
           {campo('dni', 'DNI')}
           <label className="block text-sm">
@@ -179,6 +213,20 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
           {campo('capitulo', 'Capítulo')}
           {selectSimple('zona', 'Zona', ZONAS_FIHNEC)}
           <label className="block text-sm">
+            <span className="mb-1 block text-ink/60">Departamento</span>
+            <select className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.departamento ?? ''} onChange={cambiarDepartamento}>
+              <option value="">— Seleccionar —</option>
+              {DEPARTAMENTOS_HONDURAS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/60">Municipio</span>
+            <select className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.municipio ?? ''} onChange={set('municipio')} disabled={!form.departamento}>
+              <option value="">{form.departamento ? '— Seleccionar —' : 'Primero elige un departamento'}</option>
+              {municipiosDisponibles.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Fecha de inscripción al capítulo</span>
             <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_inscripcion_capitulo ? String(form.fecha_inscripcion_capitulo).slice(0, 10) : ''} onChange={set('fecha_inscripcion_capitulo')} />
           </label>
@@ -195,12 +243,28 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
         </div>
 
         <div className="mt-5">
-          <p className="text-sm font-medium text-ink">Participará en el evento actual</p>
-          <p className="text-xs text-ink/50">Marcados por defecto — desmarca el día que no le aplique.</p>
-          <div className="mt-2 flex gap-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-ink">
+            <input type="checkbox" checked={!!form.participara_evento}
+              onChange={e => {
+                const checked = e.target.checked;
+                setForm(f => ({
+                  ...f,
+                  participara_evento: checked,
+                  dias_asistencia: checked ? { viernes: true, sabado: true, domingo: true } : f.dias_asistencia
+                }));
+              }} />
+            Participará en el evento actual
+          </label>
+          <p className="mt-1 text-xs text-ink/50">
+            {form.participara_evento
+              ? 'Los 3 días vienen marcados de una vez al activar — desmarca abajo el que no le aplique.'
+              : 'Apagado — no participa en ningún día. Los días de abajo quedan bloqueados hasta que lo actives de nuevo.'}
+          </p>
+          <div className={`mt-2 flex gap-4 ${!form.participara_evento ? 'opacity-40' : ''}`}>
             {[['viernes', 'Viernes'], ['sabado', 'Sábado'], ['domingo', 'Domingo']].map(([clave, etiqueta]) => (
-              <label key={clave} className="flex items-center gap-2 text-sm text-ink/80">
-                <input type="checkbox" checked={!!form.dias_asistencia[clave]} onChange={() => toggleDia(clave)} />
+              <label key={clave} className={`flex items-center gap-2 text-sm text-ink/80 ${!form.participara_evento ? 'cursor-not-allowed' : ''}`}>
+                <input type="checkbox" disabled={!form.participara_evento}
+                  checked={!!form.dias_asistencia[clave]} onChange={() => toggleDia(clave)} />
                 {etiqueta}
               </label>
             ))}
@@ -238,9 +302,44 @@ export default function AdminServidores() {
   const [seleccionado, setSeleccionado] = useState(null);
   const [descargando, setDescargando] = useState('');
   const [reiniciando, setReiniciando] = useState(false);
+  const [cambiandoDia, setCambiandoDia] = useState(null);
 
   const cargar = () => api.get('/admin/servidores').then(r => setServidores(r.data)).finally(() => setCargando(false));
   useEffect(() => { cargar(); }, []);
+
+  // Interruptor maestro "Participará", independiente de los días — al apagarlo, los 3
+  // días quedan deshabilitados en pantalla (no se tocan sus valores guardados).
+  const toggleParticipaEnLista = async (s) => {
+    const nuevoValor = !s.participara_evento;
+    setCambiandoDia(s.id);
+    setServidores(actuales => actuales.map(x => x.id === s.id
+      ? { ...x, participara_evento: nuevoValor, dias_asistencia: nuevoValor ? { viernes: true, sabado: true, domingo: true } : x.dias_asistencia }
+      : x));
+    try {
+      await api.put(`/admin/servidores/${s.id}/participacion`, { participa: nuevoValor });
+    } catch {
+      cargar();
+    } finally {
+      setCambiandoDia(null);
+    }
+  };
+
+  // Clic directo en V/S/D desde la tabla, sin abrir el modal de edición.
+  const toggleDiaEnLista = async (s, dia) => {
+    const nuevosDias = { ...s.dias_asistencia, [dia]: !s.dias_asistencia[dia] };
+    setCambiandoDia(s.id);
+    // Actualización optimista: se ve el cambio de una vez, sin esperar la respuesta.
+    setServidores(actuales => actuales.map(x => x.id === s.id
+      ? { ...x, dias_asistencia: nuevosDias, participara_evento: nuevosDias.viernes || nuevosDias.sabado || nuevosDias.domingo }
+      : x));
+    try {
+      await api.put(`/admin/servidores/${s.id}/dias-asistencia`, nuevosDias);
+    } catch {
+      cargar(); // si falla, se revierte trayendo el dato real
+    } finally {
+      setCambiandoDia(null);
+    }
+  };
 
   const eliminar = async (s) => {
     if (!confirm(`¿Eliminar a ${s.nombre_completo} de la lista de servidores?`)) return;
@@ -287,28 +386,49 @@ export default function AdminServidores() {
   };
 
   const COLUMNAS_IMPRESION = [
-    ['nombre_completo', 'Nombre Completo'], ['capitulo', 'Capítulo'], ['celular', 'Celular'],
+    ['nombre_completo', 'Nombre Completo'], ['capitulo', 'Capítulo'], ['departamento', 'Departamento'], ['celular', 'Celular'],
     ['estado_civil', 'Estado Civil'], ['hijos_cantidad', 'Hijos'], ['fecha_nacimiento', 'Fecha de Nacimiento'], ['email', 'E-mail']
   ];
 
+  const formatearFechaCorta = (valor) => {
+    if (!valor) return '—';
+    const f = new Date(valor);
+    return isNaN(f) ? '—' : f.toLocaleDateString('es-HN', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
   const imprimir = () => {
     const filas = servidores.map((s, i) => `
-      <tr><td>${i + 1}</td>${COLUMNAS_IMPRESION.map(([clave]) => `<td>${s[clave] ?? ''}</td>`).join('')}</tr>`).join('');
+      <tr>
+        <td>${i + 1}</td>
+        ${COLUMNAS_IMPRESION.map(([clave]) => `<td>${clave === 'fecha_nacimiento' ? formatearFechaCorta(s[clave]) : (s[clave] ?? '—')}</td>`).join('')}
+      </tr>`).join('');
     const html = `
       <html><head><title>Servidores SFL</title>
       <style>
-        body { font-family: Arial, sans-serif; padding: 24px; }
-        h1 { font-size: 18px; margin-bottom: 12px; }
+        @page { size: letter landscape; margin: 18mm 12mm; }
+        body { font-family: Arial, Helvetica, sans-serif; color: #2B2118; margin: 0; }
+        .banda { background: #241A12; padding: 14px 20px; }
+        .linea-oro { height: 3px; background: #C9932F; }
+        .marca { color: #FBF6EC; font-size: 10px; letter-spacing: 2px; margin: 0; }
+        h1 { color: #C9932F; font-family: Georgia, 'Times New Roman', serif; font-size: 20px; margin: 4px 0 0; }
+        .contenido { padding: 16px 20px; }
         table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #ccc; padding: 6px 10px; font-size: 11px; text-align: left; }
-        th { background: #f0ede4; }
+        th, td { border-bottom: 1px solid #D8CBAE; padding: 6px 8px; font-size: 10.5px; text-align: left; vertical-align: top; }
+        th { background: #F1E6CC; color: #241A12; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        tr:nth-child(even) td { background: #FBF6EC; }
       </style></head>
       <body>
-        <h1>FIHNEC · Servidores del SFL</h1>
-        <table>
-          <thead><tr><th>#</th>${COLUMNAS_IMPRESION.map(([, titulo]) => `<th>${titulo}</th>`).join('')}</tr></thead>
-          <tbody>${filas}</tbody>
-        </table>
+        <div class="banda">
+          <p class="marca">FIHNEC HONDURAS</p>
+          <h1>Servidores del SFL</h1>
+        </div>
+        <div class="linea-oro"></div>
+        <div class="contenido">
+          <table>
+            <thead><tr><th>#</th>${COLUMNAS_IMPRESION.map(([, titulo]) => `<th>${titulo}</th>`).join('')}</tr></thead>
+            <tbody>${filas}</tbody>
+          </table>
+        </div>
         <script>window.onload = () => window.print();</script>
       </body></html>`;
     const ventana = window.open('', '_blank');
@@ -362,12 +482,13 @@ export default function AdminServidores() {
             <tr>
               <th className="px-4 py-3">Nombre Completo</th>
               <th className="px-4 py-3 text-center">🎂</th>
+              <th className="px-4 py-3 text-center">Participará</th>
               <th className="px-4 py-3 text-center">Días de Asistencia</th>
               <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={4} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
             {!cargando && [...servidores]
               .sort((a, b) => Number(esCumpleanosEsteMes(b.fecha_nacimiento)) - Number(esCumpleanosEsteMes(a.fecha_nacimiento)))
               .map(s => (
@@ -381,14 +502,25 @@ export default function AdminServidores() {
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-center">
+                  <input type="checkbox" checked={!!s.participara_evento} disabled={soloLectura || cambiandoDia === s.id}
+                    onChange={() => toggleParticipaEnLista(s)}
+                    className="h-4 w-4 cursor-pointer accent-gold disabled:cursor-not-allowed" />
+                </td>
+                <td className="px-4 py-2.5 text-center">
                   <div className="inline-flex items-center gap-1.5">
                     {[['viernes', 'V'], ['sabado', 'S'], ['domingo', 'D']].map(([clave, letra]) => (
-                      <span key={clave} title={clave}
-                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                          s.dias_asistencia?.[clave] ? 'bg-gold/20 text-gold' : 'bg-ink/5 text-ink/30'
-                        }`}>
+                      <button key={clave} type="button" title={clave}
+                        disabled={soloLectura || cambiandoDia === s.id || !s.participara_evento}
+                        onClick={() => toggleDiaEnLista(s, clave)}
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition ${
+                          !s.participara_evento
+                            ? 'bg-ink/5 text-ink/15 cursor-not-allowed'
+                            : s.dias_asistencia?.[clave]
+                              ? 'bg-gold/20 text-gold hover:bg-gold/30 cursor-pointer'
+                              : 'bg-ink/5 text-ink/30 hover:bg-ink/10 cursor-pointer'
+                        } disabled:opacity-50`}>
                         {letra}
-                      </span>
+                      </button>
                     ))}
                   </div>
                   <p className={`mt-1 text-xs ${s.participara_evento ? 'text-palm font-medium' : 'text-ink/40'}`}>
@@ -403,7 +535,7 @@ export default function AdminServidores() {
               </tr>
             ))}
             {!cargando && servidores.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-ink/40">Todavía no hay servidores registrados.</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Todavía no hay servidores registrados.</td></tr>
             )}
           </tbody>
         </table>
