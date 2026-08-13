@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { soloDigitos } from '../texto.js';
 import { diasDe, obtenerMapaDias, guardarDiasServidor } from '../diasAsistencia.js';
+import { verificarPin, cambiarPin } from '../pinSeguridad.js';
 
 const router = Router();
 
@@ -11,51 +12,97 @@ const router = Router();
 // sin agregar una capa nueva de expiración/refresh que mantener.
 
 async function verificarServidor(dni, pin) {
-  const dniLimpio = String(dni || '').trim();
-  const pinLimpio = String(pin || '').trim();
-  if (!dniLimpio || !pinLimpio) return null;
-  const { rows } = await query('SELECT * FROM servidores WHERE dni = $1', [dniLimpio]);
-  const s = rows[0];
-  if (!s || !s.pin || s.pin !== pinLimpio) return null;
-  return s;
+  const resultado = await verificarPin('servidores', dni, pin);
+  return resultado.ok ? resultado.registro : null;
+}
+
+// El resto de rutas (todas menos /consultar y /cambiar-pin) quedan bloqueadas mientras la
+// persona no haya cambiado su PIN por uno propio — evita que alguien siga usando
+// indefinidamente el PIN que le asignó el administrador.
+function bloqueadoPorPinPendiente(servidor, res) {
+  if (servidor.debe_cambiar_pin) {
+    res.status(403).json({ error: 'Debes cambiar tu PIN antes de continuar.', debe_cambiar_pin: true });
+    return true;
+  }
+  return false;
 }
 
 async function construirPerfil(servidor) {
   const mapaDias = await obtenerMapaDias();
   const { pin, ...datos } = servidor;
-  return { ...datos, dias_asistencia: diasDe(mapaDias, servidor.id) };
+
+  // Años en FIHNEC: cálculo real desde la fecha de inscripción al capítulo (si se tiene).
+  let años_servicio = null;
+  if (servidor.fecha_inscripcion_capitulo) {
+    const inicio = new Date(servidor.fecha_inscripcion_capitulo);
+    if (!isNaN(inicio)) {
+      const hoy = new Date();
+      años_servicio = hoy.getFullYear() - inicio.getFullYear() - (
+        (hoy.getMonth() < inicio.getMonth() || (hoy.getMonth() === inicio.getMonth() && hoy.getDate() < inicio.getDate())) ? 1 : 0
+      );
+      if (años_servicio < 0) años_servicio = 0;
+    }
+  }
+
+  // Historial real de participación (empezó a grabarse a partir de hoy — puede venir vacío
+  // durante un tiempo, y eso está bien, no se inventa nada).
+  const { rows: historial } = await query(
+    `SELECT evento_nombre, ciclo, participo, dias_asistencia, registrado_en
+     FROM servidores_historial_participacion WHERE servidor_id = $1 ORDER BY registrado_en DESC LIMIT 12`,
+    [servidor.id]
+  );
+  const totalEventosParticipados = historial.filter(h => h.participo).length;
+
+  return {
+    ...datos,
+    dias_asistencia: diasDe(mapaDias, servidor.id),
+    años_servicio,
+    total_eventos_participados: totalEventosParticipados,
+    historial_participacion: historial
+  };
 }
 
 // POST /api/servidor-portal/consultar  body: { dni, pin }
 router.post('/consultar', async (req, res) => {
-  const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
-  if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
-  res.json(await construirPerfil(servidor));
+  const resultado = await verificarPin('servidores', req.body?.dni, req.body?.pin);
+  if (!resultado.ok) return res.status(resultado.bloqueado ? 429 : 401).json({ error: resultado.error });
+  res.json(await construirPerfil(resultado.registro));
 });
 
 // POST /api/servidor-portal/cambiar-pin  body: { dni, pin_actual, pin_nuevo }
 router.post('/cambiar-pin', async (req, res) => {
-  const servidor = await verificarServidor(req.body?.dni, req.body?.pin_actual);
-  if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN actual incorrectos.' });
+  const resultado = await verificarPin('servidores', req.body?.dni, req.body?.pin_actual);
+  if (!resultado.ok) return res.status(resultado.bloqueado ? 429 : 401).json({ error: resultado.error });
   const pinNuevo = String(req.body?.pin_nuevo || '').trim();
   if (!/^\d{4}$/.test(pinNuevo)) return res.status(400).json({ error: 'El nuevo PIN debe tener exactamente 4 dígitos.' });
-  await query('UPDATE servidores SET pin = $1 WHERE id = $2', [pinNuevo, servidor.id]);
+  await cambiarPin('servidores', resultado.registro.id, pinNuevo);
   res.json({ mensaje: 'PIN actualizado correctamente.' });
 });
 
-// PUT /api/servidor-portal/mis-datos  body: { dni, pin, celular?, email?, foto? }
-// Gestión propia: solo datos de contacto — nunca nombre, DNI, capítulo, cargo ni cualquier
-// otro dato "oficial" que deba controlar Carlos desde el panel.
+// PUT /api/servidor-portal/mis-datos  body: { dni, pin, ...campos }
+// Gestión propia: TODA su ficha personal, excepto los 4 campos "oficiales" que debe seguir
+// controlando el administrador (identidad y rol dentro de FIHNEC): nombre_completo, dni,
+// capitulo, cargo_actual. Todo lo demás lo sabe mejor él mismo que nadie.
+const CAMPOS_AUTOEDITABLES = [
+  'celular', 'email', 'foto', 'estado_civil', 'hijos_cantidad', 'fecha_nacimiento',
+  'nombre_esposa', 'nietos_cantidad', 'profesion', 'contacto_emergencia_telefono',
+  'tiempo_fihnec', 'zona', 'departamento', 'municipio', 'tipo_testimonio',
+  'cargos_desempenados', 'formacion_oficial', 'otras_participaciones'
+];
+
 router.put('/mis-datos', async (req, res) => {
   const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
   if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
 
   const b = req.body || {};
   const cols = [];
   const valores = [];
-  if (b.celular !== undefined) { cols.push('celular'); valores.push(soloDigitos(b.celular)); }
-  if (b.email !== undefined) { cols.push('email'); valores.push(b.email); }
-  if (b.foto !== undefined) { cols.push('foto'); valores.push(b.foto); }
+  for (const campo of CAMPOS_AUTOEDITABLES) {
+    if (b[campo] === undefined) continue;
+    cols.push(campo);
+    valores.push(campo === 'celular' || campo === 'contacto_emergencia_telefono' ? soloDigitos(b[campo]) : b[campo]);
+  }
   if (cols.length === 0) return res.status(400).json({ error: 'Nada para actualizar.' });
 
   const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
@@ -68,6 +115,7 @@ router.put('/mis-datos', async (req, res) => {
 router.put('/dias-asistencia', async (req, res) => {
   const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
   if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
   const b = req.body || {};
   const actualizado = await guardarDiasServidor(servidor.id, { viernes: b.viernes, sabado: b.sabado, domingo: b.domingo });
   res.json(actualizado);
@@ -88,6 +136,7 @@ async function obtenerEventoActual() {
 router.post('/transporte', async (req, res) => {
   const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
   if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
 
   const evento = await obtenerEventoActual();
   if (!evento) return res.json({ evento: null, mi_transporte_id: null, disponibles: [] });
@@ -123,6 +172,7 @@ router.post('/transporte', async (req, res) => {
 router.post('/transporte/unirme', async (req, res) => {
   const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
   if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
 
   const transporteId = req.body?.transporte_id;
   if (!transporteId) return res.status(400).json({ error: 'Falta indicar el vehículo.' });
@@ -154,6 +204,7 @@ router.post('/transporte/unirme', async (req, res) => {
 router.post('/transporte/salir', async (req, res) => {
   const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
   if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
 
   const evento = await obtenerEventoActual();
   if (!evento) return res.json({ mensaje: 'No hay ningún evento activo.' });
@@ -166,31 +217,71 @@ router.post('/transporte/salir', async (req, res) => {
   res.json({ mensaje: 'Saliste de tu transporte.' });
 });
 
-/* -------------------------------- INVENTARIO (solo ver) -------------------------------- */
+/* -------------------------------- INVENTARIO -------------------------------- */
+// Regla: cada servidor SOLO VE las categorías donde Carlos lo asignó como responsable
+// (tabla responsables_categoria) — puede tener una, varias, o ninguna. Las categorías donde
+// no está asignado ni siquiera se muestran (no es una vista de solo lectura de todo).
 
-// POST /api/servidor-portal/inventario  body: { dni, pin } -> solo lectura, mismas
-// categorías fijas que ve Carlos en el panel, sin ningún botón de editar.
+// POST /api/servidor-portal/inventario  body: { dni, pin } -> solo las categorías donde es
+// responsable, todas editables (si no tiene ninguna, la lista viene vacía).
 router.post('/inventario', async (req, res) => {
   const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
   if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
 
   const evento = await obtenerEventoActual();
   const eventoId = evento?.id || null;
 
-  const { rows: categorias } = await query(`SELECT id, nombre, orden FROM categorias_inventario WHERE tipo = 'fija' ORDER BY orden`);
+  const { rows: misResponsabilidades } = await query(
+    `SELECT c.id, c.nombre, c.orden FROM responsables_categoria rc
+     JOIN categorias_inventario c ON c.id = rc.categoria_id
+     WHERE rc.servidor_id = $1 ORDER BY c.orden`,
+    [servidor.id]
+  );
+
   const resultado = [];
-  for (const cat of categorias) {
+  for (const cat of misResponsabilidades) {
     const { rows: items } = await query(
-      `SELECT i.id, i.nombre, i.tipo_medida, ie.cantidad_actual, ie.estado_actual
+      `SELECT i.id, i.nombre, i.tipo_medida, i.umbral_alerta, ie.cantidad_actual, ie.estado_actual
        FROM items_inventario i
        LEFT JOIN inventario_evento ie ON ie.item_id = i.id AND ie.evento_id = $2
        WHERE i.categoria_id = $1 AND i.conferencia_id IS NULL
        ORDER BY i.nombre`,
       [cat.id, eventoId]
     );
-    resultado.push({ ...cat, items });
+    resultado.push({ ...cat, items, es_responsable: true });
   }
   res.json({ evento, categorias: resultado });
+});
+
+// PUT /api/servidor-portal/inventario/:itemId  body: { dni, pin, cantidad_actual?, estado_actual? }
+// Solo funciona si es responsable de la categoría a la que pertenece ese ítem.
+router.put('/inventario/:itemId', async (req, res) => {
+  const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
+  if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
+
+  const { rows: itemRows } = await query('SELECT categoria_id FROM items_inventario WHERE id = $1', [req.params.itemId]);
+  if (!itemRows[0]) return res.status(404).json({ error: 'Ítem no encontrado.' });
+
+  const { rows: esResponsable } = await query(
+    'SELECT 1 FROM responsables_categoria WHERE servidor_id = $1 AND categoria_id = $2',
+    [servidor.id, itemRows[0].categoria_id]
+  );
+  if (!esResponsable[0]) return res.status(403).json({ error: 'No estás asignado como responsable de esta categoría.' });
+
+  const evento = await obtenerEventoActual();
+  if (!evento) return res.status(400).json({ error: 'No hay ningún evento activo por ahora.' });
+
+  const { cantidad_actual, estado_actual } = req.body || {};
+  await query(
+    `INSERT INTO inventario_evento (evento_id, item_id, cantidad_actual, estado_actual, actualizado_en)
+     VALUES ($1,$2,$3,$4,now())
+     ON CONFLICT (evento_id, item_id) DO UPDATE SET
+       cantidad_actual = EXCLUDED.cantidad_actual, estado_actual = EXCLUDED.estado_actual, actualizado_en = now()`,
+    [evento.id, req.params.itemId, cantidad_actual ?? null, estado_actual || null]
+  );
+  res.json({ mensaje: 'Actualizado.' });
 });
 
 export default router;

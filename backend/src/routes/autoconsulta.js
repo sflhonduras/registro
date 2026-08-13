@@ -2,6 +2,7 @@ import { Router } from 'express';
 import QRCode from 'qrcode';
 import { query } from '../db.js';
 import { soloDigitos } from '../texto.js';
+import { verificarPin, cambiarPin } from '../pinSeguridad.js';
 
 const router = Router();
 
@@ -99,33 +100,26 @@ async function construirEstado(participante) {
 // POST /api/autoconsulta/consultar  body: { dni, pin }
 router.post('/consultar', async (req, res) => {
   const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
-  const pin = String((req.body || {}).pin || '').trim();
-  if (!dni || !pin) return res.status(400).json({ error: 'Debes indicar tu número de identidad y tu PIN.' });
+  const pin = (req.body || {}).pin;
 
-  const { rows } = await query('SELECT * FROM participantes WHERE dni = $1', [dni]);
-  const participante = rows[0];
-  if (!participante || !participante.pin || participante.pin !== pin) {
-    return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
-  }
+  const resultado = await verificarPin('participantes', dni, pin);
+  if (!resultado.ok) return res.status(resultado.bloqueado ? 429 : 401).json({ error: resultado.error });
 
-  const estado = await construirEstado(participante);
-  res.json(estado);
+  const estado = await construirEstado(resultado.registro);
+  res.json({ ...estado, debe_cambiar_pin: resultado.registro.debe_cambiar_pin });
 });
 
 // POST /api/autoconsulta/cambiar-pin  body: { dni, pin_actual, pin_nuevo }
 router.post('/cambiar-pin', async (req, res) => {
   const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
-  const pinActual = String((req.body || {}).pin_actual || '').trim();
+  const pinActual = (req.body || {}).pin_actual;
   const pinNuevo = String((req.body || {}).pin_nuevo || '').trim();
-  if (!dni || !pinActual || !pinNuevo) return res.status(400).json({ error: 'Faltan datos.' });
   if (!/^\d{4}$/.test(pinNuevo)) return res.status(400).json({ error: 'El nuevo PIN debe tener exactamente 4 dígitos.' });
 
-  const { rows } = await query('SELECT id, pin FROM participantes WHERE dni = $1', [dni]);
-  const participante = rows[0];
-  if (!participante || !participante.pin || participante.pin !== pinActual) {
-    return res.status(401).json({ error: 'Número de identidad o PIN actual incorrectos.' });
-  }
-  await query('UPDATE participantes SET pin = $1 WHERE id = $2', [pinNuevo, participante.id]);
+  const resultado = await verificarPin('participantes', dni, pinActual);
+  if (!resultado.ok) return res.status(resultado.bloqueado ? 429 : 401).json({ error: resultado.error });
+
+  await cambiarPin('participantes', resultado.registro.id, pinNuevo);
   res.json({ mensaje: 'PIN actualizado correctamente.' });
 });
 

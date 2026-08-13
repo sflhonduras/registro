@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { mensajeError } from '../api';
 
 const CAMPOS = [
-  ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['pin', 'PIN (4 dígitos)'], ['celular', 'Celular'],
+  ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['celular', 'Celular'],
   ['capitulo', 'Capítulo'], ['zona', 'Zona'], ['departamento', 'Departamento'], ['municipio', 'Municipio'],
   ['cargo_fihnec', 'Cargo en FIHNEC'], ['estado_civil', 'Estado civil'], ['hijos_cantidad', 'Hijos'],
   ['observacion', 'Observación']
@@ -13,6 +13,31 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [guardandoGraduacion, setGuardandoGraduacion] = useState(null);
+
+  const usuarioActual = JSON.parse(localStorage.getItem('sfl_user') || 'null');
+  const puedeVerPin = usuarioActual && ['admin', 'super_admin'].includes(usuarioActual.rol);
+  const [pinVisible, setPinVisible] = useState(null);
+  const [cargandoPin, setCargandoPin] = useState(false);
+  const [regenerandoPin, setRegenerandoPin] = useState(false);
+  useEffect(() => {
+    if (participante.id && puedeVerPin) {
+      setCargandoPin(true);
+      api.get(`/admin/participantes/${participante.id}/pin`).then(({ data }) => setPinVisible(data.pin)).finally(() => setCargandoPin(false));
+    }
+  }, [participante.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const regenerarPinParticipante = async () => {
+    if (!confirm('¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato, y se le pedirá que lo personalice en su próximo ingreso.')) return;
+    setRegenerandoPin(true);
+    try {
+      const { data } = await api.post(`/admin/participantes/${participante.id}/regenerar-pin`);
+      setPinVisible(data.pin);
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setRegenerandoPin(false);
+    }
+  };
 
   const guardar = async () => {
     setGuardando(true); setError('');
@@ -55,19 +80,33 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
           <button onClick={onCerrar} className="text-ink/40 hover:text-ink">✕</button>
         </div>
 
+        {puedeVerPin && (
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-gold/30 bg-gold/5 px-4 py-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gold">PIN de Autoconsulta</p>
+              <p className="mt-0.5 font-display text-lg font-bold tracking-[0.3em] text-ink">
+                {cargandoPin ? '····' : (pinVisible || '----')}
+              </p>
+              <p className="text-[11px] text-ink/40">Se lo mostró el sistema al inscribirse por primera vez — aquí solo lo ves tú.</p>
+            </div>
+            {!soloLectura && (
+              <button type="button" onClick={regenerarPinParticipante} disabled={regenerandoPin}
+                className="shrink-0 rounded-full border border-gold/40 px-4 py-1.5 text-xs font-semibold text-gold hover:bg-gold/10 disabled:opacity-50">
+                {regenerandoPin ? 'Generando…' : '↻ Regenerar'}
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           {CAMPOS.map(([campo, etiqueta]) => (
             <label key={campo} className="block text-sm">
               <span className="mb-1 block text-ink/60">{etiqueta}</span>
               <input
                 disabled={soloLectura}
-                inputMode={campo === 'pin' ? 'numeric' : undefined}
                 className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
                 value={form[campo] ?? ''}
-                onChange={e => {
-                  const valor = campo === 'pin' ? e.target.value.replace(/[^\d]/g, '').slice(0, 4) : e.target.value;
-                  setForm(f => ({ ...f, [campo]: valor }));
-                }}
+                onChange={e => setForm(f => ({ ...f, [campo]: e.target.value }))}
               />
             </label>
           ))}
@@ -625,11 +664,11 @@ function imprimirEtiqueta(nombreCompleto) {
           <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
             <tr>
               <th className="px-4 py-3">Nombre</th>
-              <th className="px-4 py-3 text-center">DNI</th>
-              <th className="px-4 py-3 text-center">Capítulo</th>
-              <th className="px-4 py-3 text-center">Niveles</th>
-              {eventoParaColumna && <th className="px-4 py-3 text-center">Registrado</th>}
-              <th className="px-4 py-3 text-center">Acciones</th>
+              <th className="px-4 py-3">DNI</th>
+              <th className="px-4 py-3">Capítulo</th>
+              <th className="px-4 py-3">Niveles</th>
+              {eventoParaColumna && <th className="px-4 py-3">Registrado</th>}
+              <th className="px-4 py-3 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -642,10 +681,10 @@ function imprimirEtiqueta(nombreCompleto) {
                     <span title="Q.E.P.D." className="ml-2 text-ink/40">✝</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center text-ink/60">{p.dni}</td>
-                <td className="px-4 py-3 text-center text-ink/60">{p.capitulo || '—'}</td>
-                <td className="px-4 py-3 text-center">
-                  <div className="flex justify-center gap-1">
+                <td className="px-4 py-3 text-ink/60">{p.dni}</td>
+                <td className="px-4 py-3 text-ink/60">{p.capitulo || '—'}</td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-1">
                     {[1, 2, 3, 4].map(n => (
                       <span key={n} className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
                         (p.eventos_inscritos || []).includes(n) ? 'bg-palm/15 text-palm' : 'bg-ink/5 text-ink/30'
@@ -654,7 +693,7 @@ function imprimirEtiqueta(nombreCompleto) {
                   </div>
                 </td>
                 {eventoParaColumna && (
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-3">
                     <input
                       type="checkbox"
                       disabled={!puedeMarcarPresencial}
@@ -664,7 +703,7 @@ function imprimirEtiqueta(nombreCompleto) {
                     />
                   </td>
                 )}
-                <td className="px-4 py-3 text-center">
+                <td className="px-4 py-3 text-right">
                   <button onClick={() => abrirDetalle(p)} className="text-gold hover:underline">{soloLectura ? 'Ver' : 'Editar'}</button>
                   {!soloLectura && (
                     <button onClick={() => eliminar(p)} className="ml-3 text-ember hover:underline">Eliminar</button>

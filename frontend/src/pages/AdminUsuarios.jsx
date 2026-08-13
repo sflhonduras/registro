@@ -149,7 +149,7 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
 
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Nueva contraseña (opcional)</span>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Dejar en blanco para no cambiarla"
+            <input type="password" name="clave_editar_usuario_sfl" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Dejar en blanco para no cambiarla"
               className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm" />
           </label>
         </div>
@@ -302,22 +302,22 @@ export default function AdminUsuarios() {
       </p>
 
       <div className="mt-6 space-y-6">
-        <form onSubmit={crear} className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <form onSubmit={crear} autoComplete="off" className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
           <p className="mb-3 font-semibold text-ink">Nuevo usuario</p>
           <div className="flex flex-wrap items-start gap-3">
             <label className="min-w-[160px] flex-1 text-sm">
               <span className="mb-1 block text-ink/60">Nombre</span>
-              <input required placeholder="Nombre completo" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+              <input required autoComplete="off" placeholder="Nombre completo" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
                 value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} />
             </label>
             <label className="min-w-[200px] flex-1 text-sm">
               <span className="mb-1 block text-ink/60">Correo electrónico</span>
-              <input required type="email" placeholder="correo@ejemplo.com" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+              <input required type="email" name="correo_nuevo_usuario_sfl" autoComplete="off" placeholder="correo@ejemplo.com" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
                 value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </label>
             <label className="min-w-[160px] flex-1 text-sm">
               <span className="mb-1 block text-ink/60">Contraseña</span>
-              <input required type="password" placeholder="Contraseña" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
+              <input required type="password" name="clave_nuevo_usuario_sfl" autoComplete="new-password" placeholder="Contraseña" className="w-full rounded-lg border border-ink/15 px-3 py-2 text-sm"
                 value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
             </label>
             <label className="min-w-[180px] flex-1 text-sm">

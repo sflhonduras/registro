@@ -42,9 +42,10 @@ export default function Autoconsulta() {
     setGuardandoPin(true);
     try {
       await api.post('/autoconsulta/cambiar-pin', { dni, pin_actual: pinActual, pin_nuevo: pinNuevo });
-      setMensajePin('✓ Tu PIN quedó actualizado. Úsalo la próxima vez que entres aquí.');
+      setMensajePin('✓ Tu PIN quedó actualizado.');
       setPin(pinNuevo);
       setPinActual(''); setPinNuevo(''); setPinNuevoConfirmar('');
+      setEstado(e => e ? { ...e, debe_cambiar_pin: false } : e);
     } catch (err) {
       setErrorPin(mensajeError(err));
     } finally {
@@ -63,15 +64,15 @@ export default function Autoconsulta() {
         <h1 className="mt-1 text-center font-display text-3xl font-bold text-ink">Consulta tu información</h1>
         <p className="mt-2 text-center text-ink/60">Ingresa tu número de identidad y tu PIN personal para ver tu estatus, tus medallas y tu código QR.</p>
 
-        <form onSubmit={consultar} className="mt-8 space-y-4">
+        <form onSubmit={consultar} autoComplete="off" className="mt-8 space-y-4">
           <input
-            required inputMode="numeric" value={dni}
+            required inputMode="numeric" name="identidad_participante" autoComplete="off" value={dni}
             onChange={e => setDni(e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
             placeholder="Número de identidad (DNI)"
             className={claseInput}
           />
           <input
-            required inputMode="numeric" maxLength={4} value={pin}
+            required type="password" name="pin_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pin}
             onChange={e => setPin(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
             placeholder="PIN (4 dígitos)"
             className={`${claseInput} tracking-[0.3em]`}
@@ -86,6 +87,42 @@ export default function Autoconsulta() {
           ¿No tienes tu PIN? Recuerda que se te mostró al inscribirte por primera vez en el Nivel I. Si no lo encuentras,
           pídele al equipo de FIHNEC que te ayude a recuperarlo.
         </p>
+      </div>
+    );
+  }
+
+  // Pantalla obligatoria: si el sistema indica que debe cambiar su PIN, no ve nada más
+  // hasta que lo haga — sin botón para saltarla, sin acceso a nivel/QR/medallas todavía.
+  if (estado && estado.debe_cambiar_pin) {
+    return (
+      <div className="mx-auto max-w-md px-5 py-24">
+        <p className="text-center text-sm font-semibold uppercase tracking-widest text-gold">Portal de autoconsulta</p>
+        <h1 className="mt-1 text-center font-display text-3xl font-bold text-ink">Elige tu propio PIN</h1>
+        <p className="mt-2 text-center text-ink/60">
+          Por seguridad, antes de continuar debes cambiar el PIN por uno que solo tú conozcas.
+        </p>
+
+        <form onSubmit={cambiarPin} autoComplete="off" className="mt-8 space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-sm">
+          <input
+            required type="password" name="pin_actual_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pinActual}
+            onChange={e => setPinActual(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+            placeholder="PIN actual" className={`${claseInput} tracking-[0.2em]`}
+          />
+          <input
+            required type="password" name="pin_nuevo_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pinNuevo}
+            onChange={e => setPinNuevo(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+            placeholder="PIN nuevo (4 dígitos)" className={`${claseInput} tracking-[0.2em]`}
+          />
+          <input
+            required type="password" name="pin_confirmar_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pinNuevoConfirmar}
+            onChange={e => setPinNuevoConfirmar(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+            placeholder="Confirma el PIN nuevo" className={`${claseInput} tracking-[0.2em]`}
+          />
+          {errorPin && <p className="rounded-lg bg-ember/10 p-2 text-center text-sm text-ember">{errorPin}</p>}
+          <button disabled={guardandoPin} className="w-full rounded-full bg-gold py-3 text-sm font-semibold text-night hover:bg-gold-light disabled:opacity-60">
+            {guardandoPin ? 'Guardando…' : 'Guardar mi nuevo PIN'}
+          </button>
+        </form>
       </div>
     );
   }
@@ -146,19 +183,19 @@ export default function Autoconsulta() {
       </div>
 
       {mostrarCambiarPin && (
-        <form onSubmit={cambiarPin} className="mt-4 space-y-3 rounded-2xl border border-ink/10 bg-white p-6 shadow-sm">
+        <form onSubmit={cambiarPin} autoComplete="off" className="mt-4 space-y-3 rounded-2xl border border-ink/10 bg-white p-6 shadow-sm">
           <input
-            required inputMode="numeric" maxLength={4} value={pinActual}
+            required type="password" name="pin_actual_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pinActual}
             onChange={e => setPinActual(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
             placeholder="PIN actual" className={`${claseInput} tracking-[0.2em]`}
           />
           <input
-            required inputMode="numeric" maxLength={4} value={pinNuevo}
+            required type="password" name="pin_nuevo_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pinNuevo}
             onChange={e => setPinNuevo(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
             placeholder="PIN nuevo (4 dígitos)" className={`${claseInput} tracking-[0.2em]`}
           />
           <input
-            required inputMode="numeric" maxLength={4} value={pinNuevoConfirmar}
+            required type="password" name="pin_confirmar_participante" autoComplete="new-password" inputMode="numeric" maxLength={4} value={pinNuevoConfirmar}
             onChange={e => setPinNuevoConfirmar(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
             placeholder="Confirma el PIN nuevo" className={`${claseInput} tracking-[0.2em]`}
           />

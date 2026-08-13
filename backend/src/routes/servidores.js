@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
 import { query } from '../db.js';
-import { requireAuth, requireModulo } from '../auth.js';
+import { requireAuth, requireModulo, requireRole } from '../auth.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
 import { guardarEnPapelera } from '../papelera.js';
 
@@ -46,7 +46,8 @@ const CAMPOS_EDITABLES = [
   ...CAMPOS_ARRAY
 ];
 
-import { obtenerMapaDias, guardarMapaDias, diasDe, guardarDiasServidor } from '../diasAsistencia.js';
+import { obtenerMapaDias, guardarMapaDias, diasDe, guardarDiasServidor, DIAS_POR_DEFECTO } from '../diasAsistencia.js';
+import { regenerarPin } from '../pinSeguridad.js';
 
 // (Los días de asistencia por servidor ahora viven en backend/src/diasAsistencia.js,
 // compartido con el portal público — ver ese archivo para el diseño completo.)
@@ -186,7 +187,10 @@ router.get('/', async (req, res) => {
     for (const s of rows) if (idsSinTocar.includes(s.id)) s.participara_evento = true;
   }
 
-  const conDias = rows.map(s => ({ ...s, dias_asistencia: diasDe(mapaDias, s.id) }));
+  const conDias = rows.map(s => {
+    const { pin, ...sinPin } = s; // el PIN nunca viaja en el listado general
+    return { ...sinPin, dias_asistencia: diasDe(mapaDias, s.id) };
+  });
   res.json(conDias);
 });
 
@@ -212,7 +216,8 @@ router.post('/', requireModulo('servidores', 'edicion'), async (req, res) => {
     `INSERT INTO servidores (${nombresCols}) VALUES (${marcadores}) RETURNING *`,
     vals
   );
-  res.status(201).json(rows[0]);
+  const { pin: _pin, ...sinPin } = rows[0];
+  res.status(201).json(sinPin);
 });
 
 router.put('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
@@ -234,7 +239,8 @@ router.put('/:id', requireModulo('servidores', 'edicion'), async (req, res) => {
     vals
   );
   if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
-  res.json(rows[0]);
+  const { pin: _pin, ...sinPin } = rows[0];
+  res.json(sinPin);
 });
 
 // PUT /api/admin/servidores/:id/participacion body: { participa: boolean }
@@ -262,12 +268,23 @@ router.put('/:id/participacion', requireModulo('servidores', 'edicion'), async (
 // desmarcados) — los 3 checkboxes son la única fuente real del dato, "participara_evento"
 // es solo la etiqueta calculada a partir de ellos.
 // POST /api/admin/servidores/:id/regenerar-pin -> genera un PIN nuevo de 4 dígitos para
-// el portal del servidor (por si lo perdió o quiere que se lo compartas de nuevo).
-router.post('/:id/regenerar-pin', requireModulo('servidores', 'edicion'), async (req, res) => {
-  const pinNuevo = String(Math.floor(1000 + Math.random() * 9000));
-  const { rows } = await query('UPDATE servidores SET pin = $1 WHERE id = $2 RETURNING id, pin', [pinNuevo, req.params.id]);
+// el portal del servidor (por si lo perdió o quiere que se lo compartas de nuevo). Marca
+// que debe personalizarlo en su próximo ingreso — nunca queda usando uno que tú generaste.
+// Solo Administrador o Super Administrador pueden ver o regenerar PINes — ningún otro rol,
+// aunque tenga edición en Servidores por otro motivo.
+router.post('/:id/regenerar-pin', requireRole('admin', 'super_admin'), async (req, res) => {
+  const { rows: existe } = await query('SELECT id FROM servidores WHERE id = $1', [req.params.id]);
+  if (!existe[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
+  const pinNuevo = await regenerarPin('servidores', req.params.id);
+  res.json({ id: req.params.id, pin: pinNuevo });
+});
+
+// GET /api/admin/servidores/:id/pin -> ver el PIN actual (sin regenerarlo), mismo candado
+// de rol que regenerar-pin.
+router.get('/:id/pin', requireRole('admin', 'super_admin'), async (req, res) => {
+  const { rows } = await query('SELECT pin FROM servidores WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Servidor no encontrado.' });
-  res.json(rows[0]);
+  res.json({ pin: rows[0].pin });
 });
 
 router.put('/:id/dias-asistencia', requireModulo('servidores', 'edicion'), async (req, res) => {
@@ -281,7 +298,28 @@ router.put('/:id/dias-asistencia', requireModulo('servidores', 'edicion'), async
 // (Viernes/Sábado/Domingo) de TODOS los servidores, y por lo tanto "participara_evento"
 // vuelve a Sí para todos (ej. antes de un evento nuevo, para que todos arranquen marcados
 // y cada quien desmarque el día que no le aplique).
+// Antes de reiniciar, guarda una foto de cómo quedó el ciclo que está terminando en
+// servidores_historial_participacion — así se va construyendo el historial real, ciclo por
+// ciclo, para poder mostrar gráficas de evolución más adelante (hoy no existen, empiezan aquí).
 router.post('/reiniciar-participacion', requireModulo('servidores', 'edicion'), async (req, res) => {
+  const { rows: eventoActualRows } = await query('SELECT id, nombre, ciclo_actual FROM eventos WHERE es_actual = TRUE LIMIT 1');
+  const eventoActual = eventoActualRows[0] || null;
+
+  if (eventoActual) {
+    const [{ rows: servidoresRows }, mapaDias] = await Promise.all([
+      query('SELECT id, participara_evento FROM servidores'),
+      obtenerMapaDias()
+    ]);
+    for (const s of servidoresRows) {
+      const dias = diasDe(mapaDias, s.id);
+      await query(
+        `INSERT INTO servidores_historial_participacion (servidor_id, evento_id, evento_nombre, ciclo, participo, dias_asistencia)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [s.id, eventoActual.id, eventoActual.nombre, eventoActual.ciclo_actual, !!s.participara_evento, JSON.stringify(dias)]
+      );
+    }
+  }
+
   await guardarMapaDias({}); // vacío = todos vuelven al valor por defecto (3 días marcados)
   const { rowCount } = await query('UPDATE servidores SET participara_evento = TRUE');
   res.json({ mensaje: 'Se reinició la participación: todos los servidores vuelven a tener los 3 días marcados.', actualizados: rowCount });

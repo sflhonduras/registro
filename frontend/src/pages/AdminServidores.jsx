@@ -132,14 +132,26 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
     lector.readAsDataURL(archivo);
   };
 
+  const usuarioActual = JSON.parse(localStorage.getItem('sfl_user') || 'null');
+  const puedeVerPin = usuarioActual && ['admin', 'super_admin'].includes(usuarioActual.rol);
+
+  const [pinVisible, setPinVisible] = useState(null);
+  const [cargandoPin, setCargandoPin] = useState(false);
+  useEffect(() => {
+    if (form.id && puedeVerPin) {
+      setCargandoPin(true);
+      api.get(`/admin/servidores/${form.id}/pin`).then(({ data }) => setPinVisible(data.pin)).finally(() => setCargandoPin(false));
+    }
+  }, [form.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [regenerandoPin, setRegenerandoPin] = useState(false);
   const regenerarPin = async () => {
     if (!form.id) return; // solo aplica a servidores ya guardados
-    if (!confirm('¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato.')) return;
+    if (!confirm('¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato, y se le pedirá que lo personalice en su próximo ingreso.')) return;
     setRegenerandoPin(true);
     try {
       const { data } = await api.post(`/admin/servidores/${form.id}/regenerar-pin`);
-      setForm(f => ({ ...f, pin: data.pin }));
+      setPinVisible(data.pin);
     } catch (err) {
       setError(mensajeError(err));
     } finally {
@@ -178,11 +190,13 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
             </div>
           </div>
 
-          {form.id && (
+          {form.id && puedeVerPin && (
             <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-gold/30 bg-gold/5 px-4 py-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-gold">PIN del Portal del Servidor</p>
-                <p className="mt-0.5 font-display text-lg font-bold tracking-[0.3em] text-ink">{form.pin || '----'}</p>
+                <p className="mt-0.5 font-display text-lg font-bold tracking-[0.3em] text-ink">
+                  {cargandoPin ? '····' : (pinVisible || '----')}
+                </p>
                 <p className="text-[11px] text-ink/40">Compártelo con él para que entre a sflhonduras.com/servidores/portal con su DNI.</p>
               </div>
               <button type="button" onClick={regenerarPin} disabled={regenerandoPin}

@@ -45,7 +45,7 @@ export default function App() {
         <Route path="/servidores/portal" element={<PublicShell><PortalServidor /></PublicShell>} />
 
         <Route path="/admin">
-          <Route index element={<AdminLogin />} />
+          <Route index element={<PublicShell><AdminLogin /></PublicShell>} />
           <Route path="cocina" element={<ProtectedRoute><CocinaDashboard /></ProtectedRoute>} />
           <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
             <Route path="panel" element={<AdminDashboard />} />

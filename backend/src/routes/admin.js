@@ -6,6 +6,7 @@ import { query } from '../db.js';
 import { requireAuth, requireRole, requireModulo, requireSuperAdmin, requireEditarPresencial } from '../auth.js';
 import { normalizarNombre } from '../texto.js';
 import { guardarEnPapelera, guardarParticipanteEnPapelera } from '../papelera.js';
+import { regenerarPin } from '../pinSeguridad.js';
 
 const router = Router();
 router.use(requireAuth); // todas las rutas de admin requieren sesión
@@ -62,7 +63,8 @@ router.get('/participantes', requireModulo('participantes', 'consulta'), async (
     )
   ]);
 
-  res.json({ total: totalRes.rows[0].total, pagina, limite, datos: dataRes.rows });
+  const datosSinPin = dataRes.rows.map(({ pin, ...resto }) => resto); // el PIN nunca viaja en el listado general
+  res.json({ total: totalRes.rows[0].total, pagina, limite, datos: datosSinPin });
 });
 
 router.get('/participantes/:id', requireModulo('participantes', 'consulta'), async (req, res) => {
@@ -80,14 +82,33 @@ router.get('/participantes/:id', requireModulo('participantes', 'consulta'), asy
     [req.params.id]
   );
   const promocionRes = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
-  res.json({ ...rows[0], inscripciones: insc.rows, historial: historial.rows, promocion_actual: promocionRes.rows[0]?.valor || null });
+  const { pin, ...sinPin } = rows[0]; // el PIN nunca viaja en el detalle general
+  res.json({ ...sinPin, inscripciones: insc.rows, historial: historial.rows, promocion_actual: promocionRes.rows[0]?.valor || null });
+});
+
+// POST /api/admin/participantes/:id/regenerar-pin -> genera un PIN nuevo de 4 dígitos y
+// marca que debe personalizarlo en su próximo ingreso. Solo Administrador o Super
+// Administrador pueden ver o regenerar PINes — ningún otro rol.
+router.post('/participantes/:id/regenerar-pin', requireRole('admin', 'super_admin'), async (req, res) => {
+  const { rows: existe } = await query('SELECT id FROM participantes WHERE id = $1', [req.params.id]);
+  if (!existe[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
+  const pinNuevo = await regenerarPin('participantes', req.params.id);
+  res.json({ id: req.params.id, pin: pinNuevo });
+});
+
+// GET /api/admin/participantes/:id/pin -> ver el PIN actual (sin regenerarlo), mismo
+// candado de rol que regenerar-pin.
+router.get('/participantes/:id/pin', requireRole('admin', 'super_admin'), async (req, res) => {
+  const { rows } = await query('SELECT pin FROM participantes WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
+  res.json({ pin: rows[0].pin });
 });
 
 const CAMPOS_PARTICIPANTE = [
   'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
   'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio', 'tiempo_comparte_testimonio',
   'ha_recibido_sael', 'cantidad_saeles', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono',
-  'pin', 'observacion'
+  'observacion'
 ];
 
 // POST /api/admin/participantes  (crear manualmente) - requiere edición en participantes
@@ -105,7 +126,8 @@ router.post('/participantes', requireModulo('participantes', 'edicion'), async (
       `INSERT INTO participantes (${cols.join(',')}) VALUES (${placeholders}) RETURNING *`,
       vals
     );
-    res.status(201).json(rows[0]);
+    const { pin, ...sinPin } = rows[0];
+    res.status(201).json(sinPin);
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Ya existe un participante con ese DNI.' });
     throw e;
@@ -128,7 +150,8 @@ router.put('/participantes/:id', requireModulo('participantes', 'edicion'), asyn
     vals
   );
   if (!rows[0]) return res.status(404).json({ error: 'Participante no encontrado.' });
-  res.json(rows[0]);
+  const { pin, ...sinPin } = rows[0];
+  res.json(sinPin);
 });
 
 // DELETE /api/admin/participantes/:id - solo admin
