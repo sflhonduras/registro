@@ -142,7 +142,7 @@ router.post('/transporte', async (req, res) => {
   if (!evento) return res.json({ evento: null, mi_transporte_id: null, disponibles: [] });
 
   const { rows: transportes } = await query(
-    `SELECT t.id, t.ciudad, t.fecha_salida, t.hora_salida, s.nombre_completo AS conductor_nombre,
+    `SELECT t.id, t.ciudad, t.departamento, t.municipio, t.fecha_salida, t.hora_salida, s.nombre_completo AS conductor_nombre,
             tv.nombre AS tipo_vehiculo_nombre, COALESCE(t.capacidad_personalizada, tv.capacidad) AS capacidad,
             (SELECT COUNT(*)::int FROM transporte_pasajeros WHERE transporte_id = t.id) AS ocupados
      FROM transportes t

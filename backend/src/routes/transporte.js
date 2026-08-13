@@ -13,7 +13,12 @@ router.use((req, res, next) => {
 });
 router.use(requireModulo('transporte', 'consulta'));
 
-const CIUDADES = ['Tegucigalpa', 'San Pedro Sula', 'La Ceiba', 'Comayagua', 'Yamaranguila', 'La Esperanza'];
+// Registros nuevos usan departamento/municipio; los viejos que solo tienen "ciudad" (de
+// antes de este cambio) se siguen mostrando igual, para no perder nada de lo ya guardado.
+function textoUbicacion(t) {
+  if (t.departamento) return [t.departamento, t.municipio].filter(Boolean).join(' — ');
+  return t.ciudad || '—';
+}
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -60,7 +65,7 @@ function formatearHora12(horaTexto) {
 
 router.get('/tipos-vehiculo', async (req, res) => {
   const { rows } = await query('SELECT * FROM tipos_vehiculo ORDER BY capacidad');
-  res.json({ ciudades: CIUDADES, tipos: rows });
+  res.json({ tipos: rows });
 });
 
 router.post('/tipos-vehiculo', requireModulo('transporte', 'edicion'), async (req, res) => {
@@ -117,7 +122,7 @@ router.get('/transportes', async (req, res) => {
   if (!evento) return res.json({ evento: null, transportes: [] });
 
   const { rows: transportes } = await query(
-    `SELECT t.id, t.ciudad, t.fecha_salida, t.hora_salida, t.conductor_id, t.capacidad_personalizada,
+    `SELECT t.id, t.ciudad, t.departamento, t.municipio, t.fecha_salida, t.hora_salida, t.conductor_id, t.capacidad_personalizada,
             s.nombre_completo AS conductor_nombre,
             tv.id AS tipo_vehiculo_id, tv.nombre AS tipo_vehiculo_nombre,
             COALESCE(t.capacidad_personalizada, tv.capacidad) AS capacidad
@@ -145,31 +150,29 @@ router.get('/transportes', async (req, res) => {
 
 // POST /api/admin/transporte/transportes
 router.post('/transportes', requireModulo('transporte', 'edicion'), async (req, res) => {
-  const { conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida } = req.body || {};
+  const { conductor_id, tipo_vehiculo_id, departamento, municipio, fecha_salida, hora_salida } = req.body || {};
   const eventoRes = await query('SELECT id FROM eventos WHERE es_actual = TRUE LIMIT 1');
   const evento = eventoRes.rows[0];
   if (!evento) return res.status(400).json({ error: 'No hay ningún evento marcado como actual.' });
-  if (!tipo_vehiculo_id || !ciudad || !fecha_salida) {
-    return res.status(400).json({ error: 'Tipo de vehículo, ciudad y fecha de salida son obligatorios.' });
+  if (!tipo_vehiculo_id || !departamento || !fecha_salida) {
+    return res.status(400).json({ error: 'Tipo de vehículo, departamento y fecha de salida son obligatorios.' });
   }
-  if (!CIUDADES.includes(ciudad)) return res.status(400).json({ error: 'Ciudad no válida.' });
 
   const { rows } = await query(
-    `INSERT INTO transportes (evento_id, conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-    [evento.id, conductor_id || null, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida || null]
+    `INSERT INTO transportes (evento_id, conductor_id, tipo_vehiculo_id, departamento, municipio, fecha_salida, hora_salida)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+    [evento.id, conductor_id || null, tipo_vehiculo_id, departamento, municipio || null, fecha_salida, hora_salida || null]
   );
   res.status(201).json({ id: rows[0].id });
 });
 
 // PUT /api/admin/transporte/transportes/:id
 router.put('/transportes/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
-  const { conductor_id, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida, capacidad_personalizada } = req.body || {};
-  if (ciudad && !CIUDADES.includes(ciudad)) return res.status(400).json({ error: 'Ciudad no válida.' });
+  const { conductor_id, tipo_vehiculo_id, departamento, municipio, fecha_salida, hora_salida, capacidad_personalizada } = req.body || {};
   const { rowCount } = await query(
-    `UPDATE transportes SET conductor_id = $1, tipo_vehiculo_id = $2, ciudad = $3,
-       fecha_salida = $4, hora_salida = $5, capacidad_personalizada = $6 WHERE id = $7`,
-    [conductor_id || null, tipo_vehiculo_id, ciudad, fecha_salida, hora_salida || null,
+    `UPDATE transportes SET conductor_id = $1, tipo_vehiculo_id = $2, departamento = $3, municipio = $4,
+       fecha_salida = $5, hora_salida = $6, capacidad_personalizada = $7 WHERE id = $8`,
+    [conductor_id || null, tipo_vehiculo_id, departamento, municipio || null, fecha_salida, hora_salida || null,
      capacidad_personalizada === '' || capacidad_personalizada == null ? null : parseInt(capacidad_personalizada, 10),
      req.params.id]
   );
@@ -179,8 +182,8 @@ router.put('/transportes/:id', requireModulo('transporte', 'edicion'), async (re
 
 // DELETE /api/admin/transporte/transportes/:id
 router.delete('/transportes/:id', requireModulo('transporte', 'edicion'), async (req, res) => {
-  const { rows } = await query('SELECT ciudad, fecha_salida FROM transportes WHERE id = $1', [req.params.id]);
-  if (rows[0]) await guardarEnPapelera('transportes', req.params.id, `${rows[0].ciudad} · ${rows[0].fecha_salida}`, req.user.id);
+  const { rows } = await query('SELECT ciudad, departamento, municipio, fecha_salida FROM transportes WHERE id = $1', [req.params.id]);
+  if (rows[0]) await guardarEnPapelera('transportes', req.params.id, `${textoUbicacion(rows[0])} · ${rows[0].fecha_salida}`, req.user.id);
   const { rowCount } = await query('DELETE FROM transportes WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'Transporte no encontrado.' });
   res.json({ mensaje: 'Eliminado.' });
@@ -235,7 +238,7 @@ async function recolectarTransportes() {
   const evento = eventoRes.rows[0] || null;
   if (!evento) return { evento: null, transportes: [] };
   const { rows: transportes } = await query(
-    `SELECT t.id, t.ciudad, t.fecha_salida, t.hora_salida, s.nombre_completo AS conductor_nombre,
+    `SELECT t.id, t.ciudad, t.departamento, t.municipio, t.fecha_salida, t.hora_salida, s.nombre_completo AS conductor_nombre,
             tv.nombre AS tipo_vehiculo_nombre, COALESCE(t.capacidad_personalizada, tv.capacidad) AS capacidad
      FROM transportes t
      LEFT JOIN servidores s ON s.id = t.conductor_id
@@ -260,7 +263,7 @@ router.get('/excel', async (req, res) => {
     '#': i + 1,
     'Conductor': t.conductor_nombre || 'Sin asignar',
     'Vehículo': t.tipo_vehiculo_nombre,
-    'Ciudad': t.ciudad,
+    'Ubicación': textoUbicacion(t),
     'Fecha salida': formatearFechaDDMMYYYY(t.fecha_salida),
     'Hora salida': formatearHora12(t.hora_salida),
     'Pasajeros': t.pasajeros.join(', '),
@@ -299,7 +302,7 @@ router.get('/pdf', async (req, res) => {
     if (doc.y > doc.page.height - 140) { doc.addPage(); doc.y = 40; }
     doc.rect(MARGEN, doc.y, ANCHO - MARGEN * 2, 24).fill(BANNER_BG);
     doc.fillColor(INK).font('Helvetica-Bold').fontSize(11)
-      .text(`${t.tipo_vehiculo_nombre} · ${t.ciudad} · ${formatearFechaLarga(t.fecha_salida)}${t.hora_salida ? ' · ' + formatearHora12(t.hora_salida) : ''}`, MARGEN + 8, doc.y + 7);
+      .text(`${t.tipo_vehiculo_nombre} · ${textoUbicacion(t)} · ${formatearFechaLarga(t.fecha_salida)}${t.hora_salida ? ' · ' + formatearHora12(t.hora_salida) : ''}`, MARGEN + 8, doc.y + 7);
     doc.moveDown(1.6);
 
     doc.fillColor(INK_SOFT).font('Helvetica').fontSize(9).text(`Conductor: `, MARGEN + 8, doc.y, { continued: true });

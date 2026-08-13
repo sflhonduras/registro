@@ -1,14 +1,23 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import api, { mensajeError } from '../api';
 import { formatearFechaLarga, formatearHora12 } from '../fechas';
+import { DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO } from '../listas';
 
-function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuardar, onEliminar, onAgregarPasajero, onQuitarPasajero }) {
+function textoUbicacion(t) {
+  if (t.departamento) return [t.departamento, t.municipio].filter(Boolean).join(' — ');
+  return t.ciudad || '—';
+}
+
+function TarjetaTransporte({ t, servidores, tipos, soloLectura, onGuardar, onEliminar, onAgregarPasajero, onQuitarPasajero }) {
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState({
     conductor_id: t.conductor_id || '', tipo_vehiculo_id: t.tipo_vehiculo_id,
-    ciudad: t.ciudad, fecha_salida: t.fecha_salida?.slice(0, 10) || '', hora_salida: t.hora_salida || '',
+    departamento: t.departamento || '', municipio: t.municipio || '',
+    fecha_salida: t.fecha_salida?.slice(0, 10) || '', hora_salida: t.hora_salida || '',
     capacidad_personalizada: t.capacidad_personalizada ?? ''
   });
+  const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
 
   const guardar = async () => {
     await onGuardar(t.id, form);
@@ -29,7 +38,7 @@ function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuar
       {!editando ? (
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <p className="font-semibold text-ink">{t.tipo_vehiculo_nombre} · {t.ciudad}</p>
+            <p className="font-semibold text-ink">{t.tipo_vehiculo_nombre} · {textoUbicacion(t)}</p>
             <p className="text-xs text-ink/50">{formatearFechaLarga(t.fecha_salida)}{t.hora_salida ? ` · ${formatearHora12(t.hora_salida)}` : ''}</p>
             <p className="mt-1 text-sm text-ink/70">Conductor: <strong>{t.conductor_nombre || 'Sin asignar'}</strong></p>
           </div>
@@ -61,9 +70,17 @@ function TarjetaTransporte({ t, servidores, tipos, ciudades, soloLectura, onGuar
             </select>
           </label>
           <label className="text-xs">
-            <span className="mb-1 block text-ink/50">Ciudad</span>
-            <select value={form.ciudad} onChange={e => setForm(f => ({ ...f, ciudad: e.target.value }))} className="w-full rounded-lg border border-ink/15 px-2 py-1.5 text-sm">
-              {ciudades.map(c => <option key={c}>{c}</option>)}
+            <span className="mb-1 block text-ink/50">Departamento</span>
+            <select value={form.departamento} onChange={cambiarDepartamento} className="w-full rounded-lg border border-ink/15 px-2 py-1.5 text-sm">
+              <option value="">Selecciona…</option>
+              {DEPARTAMENTOS_HONDURAS.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </label>
+          <label className="text-xs">
+            <span className="mb-1 block text-ink/50">Municipio</span>
+            <select value={form.municipio} onChange={e => setForm(f => ({ ...f, municipio: e.target.value }))} disabled={!form.departamento} className="w-full rounded-lg border border-ink/15 px-2 py-1.5 text-sm disabled:bg-ink/5">
+              <option value="">{form.departamento ? 'Selecciona…' : 'Primero elige un departamento'}</option>
+              {municipiosDisponibles.map(m => <option key={m}>{m}</option>)}
             </select>
           </label>
           <label className="text-xs">
@@ -132,7 +149,6 @@ export default function AdminTransporte() {
   const [transportes, setTransportes] = useState([]);
   const [servidores, setServidores] = useState([]);
   const [tipos, setTipos] = useState([]);
-  const [ciudades, setCiudades] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [descargando, setDescargando] = useState('');
@@ -150,7 +166,6 @@ export default function AdminTransporte() {
       setTransportes(tRes.data.transportes);
       setServidores(sRes.data);
       setTipos(tvRes.data.tipos);
-      setCiudades(tvRes.data.ciudades);
     } catch {
       setError('No se pudo cargar el transporte.');
     } finally {
@@ -161,11 +176,11 @@ export default function AdminTransporte() {
   useEffect(() => { cargar(); }, [cargar]);
 
   const nuevoTransporte = async () => {
-    if (tipos.length === 0 || ciudades.length === 0) return;
+    if (tipos.length === 0) return;
     setCreando(true);
     try {
       await api.post('/admin/transporte/transportes', {
-        tipo_vehiculo_id: tipos[0].id, ciudad: ciudades[0], fecha_salida: new Date().toISOString().slice(0, 10)
+        tipo_vehiculo_id: tipos[0].id, departamento: DEPARTAMENTOS_HONDURAS[0], fecha_salida: new Date().toISOString().slice(0, 10)
       });
       cargar();
     } catch (err) { setError(mensajeError(err)); } finally { setCreando(false); }
@@ -252,7 +267,7 @@ export default function AdminTransporte() {
           <div className="mt-4 space-y-3">
             {transportes.map(t => (
               <TarjetaTransporte
-                key={t.id} t={t} servidores={servidores} tipos={tipos} ciudades={ciudades} soloLectura={soloLectura}
+                key={t.id} t={t} servidores={servidores} tipos={tipos} soloLectura={soloLectura}
                 onGuardar={guardarTransporte} onEliminar={eliminarTransporte}
                 onAgregarPasajero={agregarPasajero} onQuitarPasajero={quitarPasajero}
               />

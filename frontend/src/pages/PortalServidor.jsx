@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import api, { mensajeError } from '../api';
 import {
   ZONAS_FIHNEC, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
@@ -89,19 +89,16 @@ export default function PortalServidor() {
       <section className="relative -mb-1 overflow-hidden bg-night grain-overlay">
         <div className="pointer-events-none absolute -top-24 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-ember/20 blur-3xl" />
         <div className="relative mx-auto max-w-md px-5 py-20">
-          <Link to="/" className="mb-8 inline-flex items-center gap-1.5 text-sm font-medium text-parchment/50 transition hover:text-parchment">
-            <span aria-hidden>←</span> Volver al inicio
-          </Link>
-
           <div className="text-center">
             <LlamaFirma className="flame-flicker mx-auto h-9 w-7" />
             <p className="mt-4 inline-block rounded-full border border-gold/30 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-gold-light">
               FIHNEC · Portal del Servidor
             </p>
-            <h1 className="mt-3 font-display text-4xl font-bold text-parchment">
-              Gracias por <span className="text-gold-light">servir</span>
+            <h1 className="mt-3 font-display text-3xl font-bold leading-snug text-parchment">
+              …A quien me sirva, <span className="text-gold-light">mi Padre lo honrará.</span>
             </h1>
-            <p className="mx-auto mt-3 max-w-sm text-balance text-parchment/70">
+            <p className="mt-1 text-right text-sm font-medium text-gold-light">Juan 12:26</p>
+            <p className="mx-auto mt-4 max-w-sm text-balance text-parchment/70">
               Ingresa tu DNI y tu PIN para ver y actualizar tu información del evento.
             </p>
           </div>
@@ -587,7 +584,7 @@ function TabTransporte({ credenciales }) {
           const esMio = t.id === estado.mi_transporte_id;
           return (
             <div key={t.id} className={`rounded-xl border p-4 ${esMio ? 'border-gold bg-gold/5' : 'border-ink/10'}`}>
-              <p className="font-semibold text-ink">{t.ciudad} · {t.tipo_vehiculo_nombre}</p>
+              <p className="font-semibold text-ink">{t.departamento ? [t.departamento, t.municipio].filter(Boolean).join(' — ') : t.ciudad} · {t.tipo_vehiculo_nombre}</p>
               <p className="text-sm text-ink/60">{formatearFechaHora(t.fecha_salida, t.hora_salida)}</p>
               {t.conductor_nombre && <p className="text-sm text-ink/50">Conductor: {t.conductor_nombre}</p>}
               <p className="mt-1 text-xs text-ink/40">{t.ocupados}/{t.capacidad} ocupados{t.lleno ? ' · LLENO' : ''}</p>
