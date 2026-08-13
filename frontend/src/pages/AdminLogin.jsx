@@ -37,11 +37,14 @@ export default function AdminLogin() {
   const [cargando, setCargando] = useState(false);
   const nav = useNavigate();
 
-  // 'credenciales' -> 'configurar' (primera vez con 2FA) o 'codigo' (2FA ya activado)
+  // 'credenciales' -> 'pregunta_clave' (cada 90 días, si aplica) -> 'cambiar_clave' (opcional)
+  // -> 'configurar' (primera vez con 2FA) o 'codigo' (2FA ya activado)
   const [paso, setPaso] = useState('credenciales');
   const [qr, setQr] = useState('');
   const [codigo, setCodigo] = useState('');
   const [nombrePendiente, setNombrePendiente] = useState('');
+  const [claveNueva, setClaveNueva] = useState('');
+  const [claveNuevaConfirmar, setClaveNuevaConfirmar] = useState('');
 
   // Manda a la persona al primer módulo al que sí tiene acceso, en vez de asumir que todos
   // empiezan en Estadísticas.
@@ -64,32 +67,69 @@ export default function AdminLogin() {
     await irADestinoFinal(data.usuario);
   };
 
+  // Cualquiera de los 3 puntos de entrada (login normal, posponer clave, cambiar clave)
+  // puede terminar en el mismo abanico de resultados — se procesa igual en todos lados.
+  const procesarRespuestaLogin = async (data) => {
+    if (data.requiere_cambio_clave) {
+      localStorage.setItem('sfl_token', data.token);
+      setNombrePendiente(data.usuario?.nombre || '');
+      setPaso('pregunta_clave');
+      return;
+    }
+    if (data.requiere_configurar_2fa) {
+      localStorage.setItem('sfl_token', data.token);
+      setNombrePendiente(data.usuario?.nombre || '');
+      const { data: qrData } = await api.get('/auth/2fa/qr');
+      setQr(qrData.qr);
+      setPaso('configurar');
+      return;
+    }
+    if (data.requiere_codigo_2fa) {
+      localStorage.setItem('sfl_token', data.token);
+      setNombrePendiente(data.usuario?.nombre || '');
+      setPaso('codigo');
+      return;
+    }
+    await guardarSesionCompleta(data);
+  };
+
   const entrar = async (e) => {
     e.preventDefault();
     setError(''); setCargando(true);
     try {
       const { data } = await api.post('/auth/login', { email, password });
-
-      if (data.requiere_configurar_2fa) {
-        // Token temporal (5 min) — solo sirve para terminar de configurar 2FA, para nada más.
-        localStorage.setItem('sfl_token', data.token);
-        setNombrePendiente(data.usuario?.nombre || '');
-        const { data: qrData } = await api.get('/auth/2fa/qr');
-        setQr(qrData.qr);
-        setPaso('configurar');
-        return;
-      }
-
-      if (data.requiere_codigo_2fa) {
-        localStorage.setItem('sfl_token', data.token);
-        setNombrePendiente(data.usuario?.nombre || '');
-        setPaso('codigo');
-        return;
-      }
-
-      await guardarSesionCompleta(data);
+      await procesarRespuestaLogin(data);
     } catch (err) {
       setError(mensajeError(err, 'Correo o contraseña incorrectos.'));
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const omitirCambioClave = async () => {
+    setError(''); setCargando(true);
+    try {
+      const { data } = await api.post('/auth/posponer-cambio-clave');
+      await procesarRespuestaLogin(data);
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const cambiarClave = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (claveNueva !== claveNuevaConfirmar) { setError('La nueva contraseña no coincide en ambos campos.'); return; }
+    if (claveNueva.length < 6) { setError('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
+    setCargando(true);
+    try {
+      const { data } = await api.post('/auth/cambiar-clave-login', { clave_nueva: claveNueva });
+      setClaveNueva(''); setClaveNuevaConfirmar('');
+      await procesarRespuestaLogin(data);
+    } catch (err) {
+      setError(mensajeError(err));
     } finally {
       setCargando(false);
     }
@@ -163,6 +203,51 @@ export default function AdminLogin() {
             <button disabled={cargando} className="w-full rounded-full bg-gold py-2.5 font-semibold text-night hover:bg-gold-light disabled:opacity-60">
               {cargando ? 'Ingresando…' : 'Ingresar'}
             </button>
+          </form>
+        )}
+
+        {paso === 'pregunta_clave' && (
+          <div className="mt-8 space-y-4 rounded-2xl border border-gold/15 bg-parchment p-6 shadow-xl">
+            <p className="text-center text-sm text-ink/70">
+              Hola {nombrePendiente} — por seguridad, cada cierto tiempo te sugerimos cambiar tu contraseña. ¿Quieres hacerlo ahora?
+            </p>
+            {error && <p className="rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
+            <div className="flex gap-3">
+              <button type="button" onClick={omitirCambioClave} disabled={cargando}
+                className="flex-1 rounded-full border border-ink/20 py-2.5 text-sm font-semibold text-ink/60 transition hover:bg-ink/5 disabled:opacity-60">
+                Más tarde
+              </button>
+              <button type="button" onClick={() => setPaso('cambiar_clave')} disabled={cargando}
+                className="flex-1 rounded-full bg-gold py-2.5 text-sm font-semibold text-night transition hover:bg-gold-light disabled:opacity-60">
+                Cambiar ahora
+              </button>
+            </div>
+          </div>
+        )}
+
+        {paso === 'cambiar_clave' && (
+          <form onSubmit={cambiarClave} autoComplete="off" className="mt-8 space-y-4 rounded-2xl border border-gold/15 bg-parchment p-6 shadow-xl">
+            <p className="text-center text-sm text-ink/70">Escribe tu nueva contraseña:</p>
+            <input
+              required type="password" name="clave_nueva_sfl" autoComplete="new-password" minLength={6}
+              value={claveNueva} onChange={e => setClaveNueva(e.target.value)} placeholder="Nueva contraseña"
+              className={claseInput}
+            />
+            <input
+              required type="password" name="clave_nueva_confirmar_sfl" autoComplete="new-password" minLength={6}
+              value={claveNuevaConfirmar} onChange={e => setClaveNuevaConfirmar(e.target.value)} placeholder="Confirma la nueva contraseña"
+              className={claseInput}
+            />
+            {error && <p className="rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
+            <div className="flex gap-3">
+              <button type="button" onClick={() => { setPaso('pregunta_clave'); setError(''); }} disabled={cargando}
+                className="flex-1 rounded-full border border-ink/20 py-2.5 text-sm font-semibold text-ink/60 transition hover:bg-ink/5 disabled:opacity-60">
+                Volver
+              </button>
+              <button disabled={cargando} className="flex-1 rounded-full bg-gold py-2.5 text-sm font-semibold text-night transition hover:bg-gold-light disabled:opacity-60">
+                {cargando ? 'Guardando…' : 'Guardar y continuar'}
+              </button>
+            </div>
           </form>
         )}
 

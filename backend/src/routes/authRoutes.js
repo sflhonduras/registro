@@ -15,6 +15,35 @@ function requiere2FA(user) {
   return user.rol === 'super_admin' || user.requiere_2fa === true;
 }
 
+// Cada 90 días se le pregunta a todos (menos al Super Administrador) si quieren cambiar su
+// contraseña — es una sugerencia, no obligatoria: puede decir "Más tarde" y se pospone otros
+// 90 días desde ese momento, sin que haya cambiado nada de verdad.
+const DIAS_ENTRE_RECORDATORIOS = 90;
+function debePreguntarCambioClave(user) {
+  if (user.rol === 'super_admin') return false;
+  const base = user.password_cambio_pospuesto_en || user.password_actualizada_en;
+  if (!base) return false;
+  const diasTranscurridos = (Date.now() - new Date(base).getTime()) / (1000 * 60 * 60 * 24);
+  return diasTranscurridos >= DIAS_ENTRE_RECORDATORIOS;
+}
+
+// Una vez que ya se resolvió (o se saltó) la pregunta de cambio de contraseña, sigue el
+// flujo normal de siempre: 2FA si aplica, o sesión completa. Se comparte entre el login
+// normal y los dos endpoints nuevos (posponer / cambiar), para no duplicar esta lógica.
+async function continuarLogin(user, res) {
+  if (!requiere2FA(user)) {
+    const token = signToken(user);
+    await registrarLogin(user.id);
+    return res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+  }
+  if (!user.two_factor_enabled) {
+    const tokenTemporal = signTokenTemporal(user, 'requiere_configurar_2fa');
+    return res.json({ requiere_configurar_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
+  }
+  const tokenTemporal = signTokenTemporal(user, 'requiere_codigo_2fa');
+  res.json({ requiere_codigo_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
+}
+
 router.post('/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
@@ -26,24 +55,42 @@ router.post('/login', async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'Credenciales inválidas.' });
 
-  // Cuentas que no necesitan 2FA: entran de una vez, igual que siempre.
-  if (!requiere2FA(user)) {
-    const token = signToken(user);
-    await registrarLogin(user.id);
-    return res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+  // Justo después de validar la contraseña, antes de pedir 2FA: si ya pasaron 90 días desde
+  // la última vez que cambió su clave (o que pospuso la pregunta), se le pregunta ahora.
+  if (debePreguntarCambioClave(user)) {
+    const tokenTemporal = signTokenTemporal(user, 'requiere_cambio_clave');
+    return res.json({ requiere_cambio_clave: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
   }
 
-  // Primera vez que esta persona entra desde que existe 2FA: hay que configurarlo antes de
-  // dejarla pasar. El token que se manda aquí es temporal (5 min) y SOLO sirve para el paso
-  // de configuración, no para nada más del panel.
-  if (!user.two_factor_enabled) {
-    const tokenTemporal = signTokenTemporal(user, 'requiere_configurar_2fa');
-    return res.json({ requiere_configurar_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
-  }
+  await continuarLogin(user, res);
+});
 
-  // Ya tiene 2FA activado de antes: pide el código de su app autenticadora.
-  const tokenTemporal = signTokenTemporal(user, 'requiere_codigo_2fa');
-  res.json({ requiere_codigo_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
+// POST /api/auth/posponer-cambio-clave -> el usuario eligió "Más tarde". Se pospone otros
+// 90 días desde ahora y sigue el login normal (2FA si aplica).
+router.post('/posponer-cambio-clave', requireTokenPaso('requiere_cambio_clave'), async (req, res) => {
+  const { rows } = await query(
+    'UPDATE usuarios_admin SET password_cambio_pospuesto_en = now() WHERE id = $1 RETURNING *',
+    [req.user.id]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+  await continuarLogin(user, res);
+});
+
+// POST /api/auth/cambiar-clave-login  body: { clave_nueva } -> el usuario decidió cambiarla
+// aquí mismo, en el momento del login. Guarda la nueva clave y sigue el login normal.
+router.post('/cambiar-clave-login', requireTokenPaso('requiere_cambio_clave'), async (req, res) => {
+  const claveNueva = String(req.body?.clave_nueva || '');
+  if (claveNueva.length < 6) return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+
+  const hash = await bcrypt.hash(claveNueva, 10);
+  const { rows } = await query(
+    'UPDATE usuarios_admin SET password_hash = $1, password_actualizada_en = now(), password_cambio_pospuesto_en = NULL WHERE id = $2 RETURNING *',
+    [hash, req.user.id]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+  await continuarLogin(user, res);
 });
 
 // GET /api/auth/2fa/qr -> genera (o reutiliza) el secreto y devuelve el QR para escanear.
