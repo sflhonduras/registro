@@ -20,5 +20,5 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Visitar el backend para que no se duerma
-        run: curl -sf https://sfl-fihnec-api.onrender.com/api/salud || echo "El backend no respondió, pero no es grave — se reintenta en 14 minutos."
+      - name: Visitar el backend Y la base de datos, para que no se duerma ninguno
+        run: curl -sf https://sfl-fihnec-api.onrender.com/api/salud-completa || echo "No respondió, pero no es grave — se reintenta en 14 minutos."

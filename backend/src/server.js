@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import 'express-async-errors'; // hace que los errores en rutas async lleguen al manejador de errores, en vez de tumbar el proceso
+import { query } from './db.js';
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/admin.js';
@@ -51,6 +52,18 @@ app.use('/api/autoconsulta/consultar', rateLimit({ windowMs: 60 * 1000, max: 10 
 app.use('/api/autoconsulta/cambiar-pin', rateLimit({ windowMs: 60 * 1000, max: 10 }));
 
 app.get('/api/salud', (req, res) => res.json({ ok: true, servicio: 'SFL FIHNEC API' }));
+
+// /api/salud NO toca la base de datos — mantiene despierto Render, pero no Neon, que tiene
+// su propio temporizador de suspensión independiente en el plan gratis. Este endpoint hace
+// una consulta mínima real, para que el "keep-alive" mantenga despiertos a los dos a la vez.
+app.get('/api/salud-completa', async (req, res) => {
+  try {
+    await query('SELECT 1');
+    res.json({ ok: true, servicio: 'SFL FIHNEC API', base_de_datos: 'despierta' });
+  } catch (e) {
+    res.status(503).json({ ok: false, error: 'La base de datos no respondió a tiempo.' });
+  }
+});
 
 app.use('/api', publicRoutes);
 app.use('/api/auth', authRoutes);
