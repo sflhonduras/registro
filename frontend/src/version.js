@@ -5,5 +5,5 @@
 //   - Cualquier cambio que toque frontend          -> sube el MINOR (v1.1.0, v1.2.0...) y el patch vuelve a 0
 //   - Cambio realmente grande (módulo nuevo enorme, rediseño total, etc.) -> sube el MAJOR (v2.0.0),
 //     decidido a mano entre Carlos y Claude, nunca automático.
-export const VERSION = 'v1.1.0';
-export const FECHA_VERSION = '13 de agosto de 2026';
+export const VERSION = 'v1.2.0';
+export const FECHA_VERSION = '19 de agosto de 2026';

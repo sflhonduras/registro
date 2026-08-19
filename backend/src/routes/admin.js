@@ -7,6 +7,22 @@ import { requireAuth, requireRole, requireModulo, requireSuperAdmin, requireEdit
 import { normalizarNombre } from '../texto.js';
 import { guardarEnPapelera, guardarParticipanteEnPapelera } from '../papelera.js';
 import { regenerarPin } from '../pinSeguridad.js';
+import {
+  obtenerOCrearInforme, congelarInformesDeNivel, congelarTodosLosNoCongelados, obtenerInformePorToken
+} from '../informesCierre.js';
+
+// Cuenta cuántos Participantes Sin Requisitos tienen evidencia guardada de un nivel (orden)
+// en un ciclo específico — mismo criterio en Diplomas y en el resumen del panel lateral,
+// para que ambos números siempre coincidan.
+async function contarSinRequisitos(orden, ciclo) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS total
+     FROM participantes_excepcion pe, jsonb_array_elements(pe.eventos_sin_diploma) AS ev
+     WHERE (ev->>'orden')::int = $1 AND (ev->>'ciclo')::int = $2`,
+    [orden, ciclo]
+  );
+  return rows[0]?.total || 0;
+}
 
 const router = Router();
 router.use(requireAuth); // todas las rutas de admin requieren sesión
@@ -248,6 +264,11 @@ router.put('/eventos/:orden', requireModulo('eventos', 'edicion'), async (req, r
 // Marca un nuevo ciclo/edición de este nivel. Las inscripciones anteriores quedan intactas
 // en el historial, pero dejan de contarse como "del evento actual" en estadísticas y diplomas.
 router.post('/eventos/:orden/nuevo-ciclo', requireModulo('eventos', 'edicion'), async (req, res) => {
+  // Si este nivel tenía un informe de cierre todavía "vivo" (sin congelar), este es el
+  // momento en que su ciclo termina de verdad — se congela la foto fija ANTES de avanzar
+  // el ciclo, con los datos tal como quedaron.
+  await congelarInformesDeNivel(parseInt(req.params.orden, 10));
+
   const { rows } = await query(
     'UPDATE eventos SET ciclo_actual = ciclo_actual + 1, actualizado_en = now() WHERE orden = $1 RETURNING *',
     [req.params.orden]
@@ -260,6 +281,19 @@ router.post('/eventos/:orden/nuevo-ciclo', requireModulo('eventos', 'edicion'), 
 // Marca este nivel como "el evento actual" (el único que se muestra en el contador principal
 // del panel). Desmarca automáticamente cualquier otro nivel que lo tuviera antes.
 router.post('/eventos/:orden/marcar-actual', requireModulo('eventos', 'edicion'), async (req, res) => {
+  // El nivel que va a dejar de ser "el actual" es el que se está cerrando ahora mismo —
+  // se captura ANTES de tocar nada, para poder crear su informe con el ciclo correcto.
+  const { rows: actualPrevio } = await query('SELECT * FROM eventos WHERE es_actual = TRUE');
+
+  // Este cambio de nivel actual es, por definición, "el evento siguiente" para cualquier
+  // informe de un cierre anterior que siguiera vivo — se congelan todos antes de crear el
+  // nuevo (así el nuevo no se congela a sí mismo por accidente).
+  await congelarTodosLosNoCongelados();
+
+  if (actualPrevio[0] && actualPrevio[0].orden !== parseInt(req.params.orden, 10)) {
+    await obtenerOCrearInforme(actualPrevio[0].orden, actualPrevio[0].ciclo_actual);
+  }
+
   await query('UPDATE eventos SET es_actual = FALSE');
   const { rows } = await query(
     'UPDATE eventos SET es_actual = TRUE WHERE orden = $1 RETURNING *',
@@ -267,6 +301,13 @@ router.post('/eventos/:orden/marcar-actual', requireModulo('eventos', 'edicion')
   );
   if (!rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
   res.json({ mensaje: `"${rows[0].nombre}" ahora es el evento actual.`, evento: rows[0] });
+});
+
+// GET /api/admin/informes/:token -> ver un informe de cierre (autenticado, desde el panel)
+router.get('/informes/:token', async (req, res) => {
+  const informe = await obtenerInformePorToken(req.params.token);
+  if (!informe) return res.status(404).json({ error: 'Informe no encontrado.' });
+  res.json(informe);
 });
 
 // POST /api/admin/promocion/avanzar -> avanza la promoción actual en +1 (ej. de V a VI)
@@ -289,16 +330,25 @@ router.post('/promocion/avanzar', requireModulo('eventos', 'edicion'), async (re
 router.get('/evento-actual-resumen', async (req, res) => {
   const { rows } = await query(`
     SELECT e.orden, e.nombre, e.ciclo_actual,
-      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual
+      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual,
+      COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual AND i.registrado_presencial = TRUE)::int AS total_registrados
     FROM eventos e LEFT JOIN inscripciones i ON i.evento_id = e.id
     WHERE e.es_actual = TRUE
     GROUP BY e.id
   `);
-  res.json({ evento_actual: rows[0] || null });
+  const evento = rows[0] || null;
+  if (evento) {
+    // Mismo desglose que en Diplomas: registrados con asistencia confirmada + Sin
+    // Requisitos con evidencia de este nivel y ciclo — para que ambos números coincidan
+    // siempre entre el panel lateral y la pantalla de Diplomas.
+    evento.total_sin_requisitos = await contarSinRequisitos(evento.orden, evento.ciclo_actual);
+    evento.total_registrados_general = evento.total_registrados + evento.total_sin_requisitos;
+  }
+  res.json({ evento_actual: evento });
 });
 
 router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (req, res) => {
-  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4, porDesercion, totalSinRequisitos] = await Promise.all([
+  const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4, porDesercion, totalSinRequisitos, ultimoInformeRes] = await Promise.all([
     query(`
       SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
         COUNT(i.id)::int AS total_inscritos,
@@ -337,14 +387,16 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
       SELECT COUNT(*)::int AS total
       FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
       WHERE e.orden = 4 AND i.fecha_graduacion IS NOT NULL`),
-    // Deserción por nivel: para cada nivel de destino (2, 3, 4), cuenta a quienes
-    // completaron el nivel ANTERIOR en un ciclo ya cerrado (no el que está inscribiéndose
-    // ahora mismo) y NUNCA tienen ninguna fila en el nivel de destino. Misma lógica que usa
-    // Reportería para "Deserción Nivel X".
+    // Deserción por nivel: para cada nivel de destino (2, 3, 4), cuenta a quienes SE
+    // GRADUARON del nivel ANTERIOR (fecha_graduacion no nula — dato individual, el mismo
+    // que ya usa Participantes Sin Requisitos) y todavía NUNCA tienen ninguna fila en el
+    // nivel de destino. Se actualiza en vivo, persona por persona, sin esperar a que se
+    // cierre el ciclo completo — antes esperaba el cierre del ciclo, lo cual retrasaba el
+    // conteo aunque la persona ya llevara tiempo sin avanzar.
     query(`
       SELECT e_dest.orden AS orden, COUNT(*)::int AS total
       FROM eventos e_prev
-      JOIN inscripciones i_prev ON i_prev.evento_id = e_prev.id AND i_prev.ciclo <> e_prev.ciclo_actual
+      JOIN inscripciones i_prev ON i_prev.evento_id = e_prev.id AND i_prev.fecha_graduacion IS NOT NULL
       JOIN eventos e_dest ON e_dest.orden = e_prev.orden + 1
       WHERE e_prev.orden IN (1, 2, 3)
         AND NOT EXISTS (
@@ -352,7 +404,11 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
           WHERE i_cur.participante_id = i_prev.participante_id AND i_cur.evento_id = e_dest.id
         )
       GROUP BY e_dest.orden`),
-    query('SELECT COUNT(*)::int AS total FROM participantes_excepcion')
+    query('SELECT COUNT(*)::int AS total FROM participantes_excepcion'),
+    query(`
+      SELECT ic.token, ic.congelado, ic.generado_en, ic.evento_orden, e.nombre AS evento_nombre
+      FROM informes_cierre_nivel ic JOIN eventos e ON e.orden = ic.evento_orden
+      ORDER BY ic.generado_en DESC LIMIT 1`)
   ]);
 
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
@@ -387,7 +443,8 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
     embudo: embudo.rows,
     graduados_por_promocion: porPromocion.rows,
     total_graduados_nivel_4: totalGraduadosNivel4.rows[0].total,
-    total_sin_requisitos: totalSinRequisitos.rows[0].total
+    total_sin_requisitos: totalSinRequisitos.rows[0].total,
+    ultimo_informe: ultimoInformeRes.rows[0] || null
   });
 });
 
@@ -424,7 +481,7 @@ router.get('/estadisticas/mapa', requireModulo('estadisticas', 'consulta'), asyn
       WITH elegibles AS (
         SELECT DISTINCT i_prev.participante_id, COALESCE(p.departamento,'Sin depto.') AS departamento, COALESCE(p.municipio,'Sin municipio') AS municipio
         FROM inscripciones i_prev
-        JOIN eventos e_prev ON e_prev.id = i_prev.evento_id AND e_prev.orden = $1 - 1 AND i_prev.ciclo <> e_prev.ciclo_actual
+        JOIN eventos e_prev ON e_prev.id = i_prev.evento_id AND e_prev.orden = $1 - 1 AND i_prev.fecha_graduacion IS NOT NULL
         JOIN participantes p ON p.id = i_prev.participante_id
       ),
       desertores AS (
@@ -707,7 +764,13 @@ router.get('/diplomas/:orden', requireModulo('diplomas', 'consulta'), async (req
      ORDER BY p.nombre_completo ASC`,
     [evento.id, evento.ciclo_actual]
   );
-  res.json({ evento, total: rows.length, participantes: rows });
+
+  // Participantes Sin Requisitos que tienen evidencia guardada de ESTE nivel en ESTE ciclo
+  // específico (no cuenta si quedó marcado en un ciclo anterior del mismo nivel). Solo se
+  // suma al conteo — la tabla y las exportaciones (Excel/PDF/Imprimir) no cambian.
+  const sin_requisitos = await contarSinRequisitos(evento.orden, evento.ciclo_actual);
+
+  res.json({ evento, total: rows.length, sin_requisitos, total_general: rows.length + sin_requisitos, participantes: rows });
 });
 
 // GET /api/admin/diplomas/:orden/excel -> descarga .xlsx con Numero, Nombre, Capítulo, Cargo

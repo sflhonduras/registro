@@ -120,7 +120,11 @@ export default function AdminDiplomas() {
       </div>
 
       <p className="mt-4 text-sm text-ink/50">
-        {datos ? `${datos.total} participante(s) registrado(s) en el ciclo actual` : '…'}
+        {datos ? (
+          datos.sin_requisitos > 0
+            ? `${datos.total} registrado(s) + ${datos.sin_requisitos} sin requisitos (de este nivel y ciclo) = ${datos.total_general} en total`
+            : `${datos.total} participante(s) registrado(s) en el ciclo actual`
+        ) : '…'}
       </p>
 
       <div className="mt-3 overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">

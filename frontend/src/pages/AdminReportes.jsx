@@ -44,6 +44,7 @@ export default function AdminReportes() {
   const [capitulo, setCapitulo] = useState('');
   const [buscar, setBuscar] = useState('');
   const [medalla, setMedalla] = useState('');
+  const [incluirSinRequisitos, setIncluirSinRequisitos] = useState(false);
   const [promocion] = useState(parametrosUrl.get('promocion') || '');
   const [campos, setCampos] = useState(CAMPOS_POR_DEFECTO);
   const [resultado, setResultado] = useState(null);
@@ -73,6 +74,7 @@ export default function AdminReportes() {
       params.set('alcance', alcance);
     }
     if (alcance === 'rango' && desde && hasta) { params.set('alcance', 'rango'); params.set('desde', desde); params.set('hasta', hasta); }
+    if (nivel !== 'todos' && alcance === 'ciclo_actual' && incluirSinRequisitos) params.set('incluir_sin_requisitos', 'true');
     if (promocion) params.set('promocion', promocion);
     if (zona) params.set('zona', zona);
     if (departamento) params.set('departamento', departamento);
@@ -118,14 +120,30 @@ export default function AdminReportes() {
       ? 'Reporte de Participantes Sin Requisitos'
       : alcance === 'desercion'
         ? `Reporte de Deserción SFL ${NIVEL_ROMANO[nivel]}`
-        : (nivel !== 'todos' ? `Reporte SFL Nivel ${NIVEL_ROMANO[nivel] || nivel}` : 'Reporte de Participantes');
+        : (nivel !== 'todos' ? `Reporte SFL Nivel ${NIVEL_ROMANO[nivel] || nivel}${resultado?.incluyeSinRequisitos ? ' (Con y Sin Requisitos)' : ''}` : 'Reporte de Participantes');
   const colorEncabezadoImpresion = alcance === 'desercion' ? '#B23A2E' : '#241A12';
   const colorBandaImpresion = alcance === 'desercion' ? '#F3DAD6' : '#F1E6CC';
 
   const imprimir = () => {
     if (!resultado) return;
-    const filas = resultado.filas.map((f, i) => `
-      <tr><td>${i + 1}</td>${resultado.columnas.map(c => `<td>${formatearValorColumna(c.clave, f[c.clave])}</td>`).join('')}</tr>`).join('');
+    const filaHtml = (f, i) => `
+      <tr><td>${i + 1}</td>${resultado.columnas.map(c => `<td>${formatearValorColumna(c.clave, f[c.clave])}</td>`).join('')}</tr>`;
+
+    let cuerpoTabla;
+    if (resultado.incluyeSinRequisitos) {
+      const conRequisito = resultado.filas.filter(f => f._seccion === 'Con Requisito');
+      const sinRequisito = resultado.filas.filter(f => f._seccion === 'Sin Requisito');
+      const colspan = resultado.columnas.length + 1;
+      cuerpoTabla = `
+        <tr><td colspan="${colspan}" style="background:#DCE9DE;color:#1F4A2C;font-weight:bold;">CON REQUISITO (${conRequisito.length})</td></tr>
+        ${conRequisito.map(filaHtml).join('')}
+        <tr><td colspan="${colspan}" style="background:#F3DAD6;color:#B23A2E;font-weight:bold;">SIN REQUISITO (${sinRequisito.length})</td></tr>
+        ${sinRequisito.map(filaHtml).join('')}
+        <tr><td colspan="${colspan}" style="background:#241A12;color:#FBF6EC;font-weight:bold;">TOTAL GENERAL: ${resultado.filas.length} (${conRequisito.length} con requisito + ${sinRequisito.length} sin requisito)</td></tr>`;
+    } else {
+      cuerpoTabla = resultado.filas.map(filaHtml).join('');
+    }
+
     const html = `
       <html><head><title>${tituloImpresion}</title>
       <style>
@@ -141,7 +159,7 @@ export default function AdminReportes() {
         <h2>${tituloImpresion}</h2>
         <table>
           <thead><tr><th>#</th>${resultado.columnas.map(c => `<th>${c.titulo}</th>`).join('')}</tr></thead>
-          <tbody>${filas}</tbody>
+          <tbody>${cuerpoTabla}</tbody>
         </table>
         <script>window.onload = () => window.print();</script>
       </body></html>`;
@@ -168,6 +186,7 @@ export default function AdminReportes() {
               const nuevoNivel = e.target.value;
               setNivel(nuevoNivel);
               if (alcance === 'desercion' && !['2', '3', '4'].includes(nuevoNivel)) setAlcance('historico');
+              if (nuevoNivel === 'todos') setIncluirSinRequisitos(false);
             }} className={claseSelect}>
               {NIVELES.map(n => <option key={n.valor} value={n.valor}>{n.etiqueta}</option>)}
             </select>
@@ -176,7 +195,11 @@ export default function AdminReportes() {
           {nivel !== 'repeticiones' && nivel !== 'sin_requisitos' && (
             <label className="text-sm">
               <span className="mb-1 block text-ink/60">¿Qué registros?</span>
-              <select value={alcance} onChange={e => setAlcance(e.target.value)} className={claseSelect}>
+              <select value={alcance} onChange={e => {
+                const nuevoAlcance = e.target.value;
+                setAlcance(nuevoAlcance);
+                if (nuevoAlcance !== 'ciclo_actual') setIncluirSinRequisitos(false);
+              }} className={claseSelect}>
                 <option value="historico">Todo el historial</option>
                 {nivel !== 'todos' && <option value="ciclo_actual">Solo el ciclo actual</option>}
                 <option value="rango">Rango de fechas personalizado</option>
@@ -184,6 +207,13 @@ export default function AdminReportes() {
                   <option value="desercion">Deserción Nivel {{ '2': 'II', '3': 'III', '4': 'IV' }[nivel]}</option>
                 )}
               </select>
+            </label>
+          )}
+
+          {nivel !== 'todos' && nivel !== 'repeticiones' && nivel !== 'sin_requisitos' && alcance === 'ciclo_actual' && (
+            <label className="flex items-center gap-2 self-end pb-2.5 text-sm text-ink/70">
+              <input type="checkbox" checked={incluirSinRequisitos} onChange={e => setIncluirSinRequisitos(e.target.checked)} />
+              Incluir Participantes Sin Requisitos de este nivel/ciclo
             </label>
           )}
 
@@ -309,7 +339,28 @@ export default function AdminReportes() {
                 </tr>
               </thead>
               <tbody>
-                {resultado.filas.map((f, i) => (
+                {resultado.incluyeSinRequisitos ? (() => {
+                  const conRequisito = resultado.filas.filter(f => f._seccion === 'Con Requisito');
+                  const sinRequisito = resultado.filas.filter(f => f._seccion === 'Sin Requisito');
+                  const colspan = resultado.columnas.length + 1;
+                  const filaDatos = (f, i, key) => (
+                    <tr key={key} className="border-t border-ink/5">
+                      <td className="px-4 py-2 text-ink/50">{i + 1}</td>
+                      {resultado.columnas.map(c => <td key={c.clave} className="px-4 py-2 text-ink/70">{formatearValorColumna(c.clave, f[c.clave])}</td>)}
+                    </tr>
+                  );
+                  return (
+                    <>
+                      <tr><td colSpan={colspan} className="bg-palm/10 px-4 py-2 text-sm font-semibold text-palm">CON REQUISITO ({conRequisito.length})</td></tr>
+                      {conRequisito.map((f, i) => filaDatos(f, i, `cr-${i}`))}
+                      <tr><td colSpan={colspan} className="bg-ember/10 px-4 py-2 text-sm font-semibold text-ember">SIN REQUISITO ({sinRequisito.length})</td></tr>
+                      {sinRequisito.map((f, i) => filaDatos(f, i, `sr-${i}`))}
+                      <tr><td colSpan={colspan} className="bg-night px-4 py-2 text-sm font-semibold text-parchment">
+                        TOTAL GENERAL: {resultado.filas.length} ({conRequisito.length} con requisito + {sinRequisito.length} sin requisito)
+                      </td></tr>
+                    </>
+                  );
+                })() : resultado.filas.map((f, i) => (
                   <tr key={i} className="border-t border-ink/5">
                     <td className="px-4 py-2 text-ink/50">{i + 1}</td>
                     {resultado.columnas.map(c => <td key={c.clave} className="px-4 py-2 text-ink/70">{formatearValorColumna(c.clave, f[c.clave])}</td>)}

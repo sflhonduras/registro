@@ -4,6 +4,7 @@ import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import RegistroEvento1 from './pages/RegistroEvento1';
+import InformeCierreNivel from './pages/InformeCierreNivel';
 import RegistroEventoN from './pages/RegistroEventoN';
 import Autoconsulta from './pages/Autoconsulta';
 import PortalServidor from './pages/PortalServidor';
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/registro/:orden" element={<PublicShell><RegistroEventoN /></PublicShell>} />
         <Route path="/autoconsulta" element={<PublicShell><Autoconsulta /></PublicShell>} />
         <Route path="/servidores/portal" element={<PublicShell><PortalServidor /></PublicShell>} />
+        <Route path="/informe/:token" element={<InformeCierreNivel />} />
 
         <Route path="/admin">
           <Route index element={<PublicShell><AdminLogin /></PublicShell>} />

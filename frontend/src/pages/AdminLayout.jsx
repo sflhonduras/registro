@@ -31,13 +31,11 @@ const ETIQUETA_ROL = {
 export default function AdminLayout() {
   const nav = useNavigate();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
-  const [totalRegistros, setTotalRegistros] = useState(null);
   const [eventoActual, setEventoActual] = useState(null);
   const [misModulos, setMisModulos] = useState(null);
 
   useEffect(() => {
     api.get('/admin/evento-actual-resumen').then(r => {
-      setTotalRegistros(r.data.evento_actual?.total_ciclo_actual ?? 0);
       setEventoActual(r.data.evento_actual);
     }).catch(() => {});
   }, []);
@@ -71,7 +69,11 @@ export default function AdminLayout() {
         <NavLink to="/" className="flex items-center gap-1.5 text-sm font-medium text-parchment/70">
           <span aria-hidden>←</span> Sitio principal
         </NavLink>
-        <span className="text-xs font-semibold text-gold-light">{totalRegistros ?? '…'} registros</span>
+        <div className="flex items-center gap-2.5 text-xs font-semibold text-gold-light">
+          <span>{eventoActual?.total_ciclo_actual ?? '…'} insc.</span>
+          <span className="text-parchment/30">|</span>
+          <span>{eventoActual?.total_registrados_general ?? '…'} reg.</span>
+        </div>
         <div className="flex gap-3">
           {enlacesVisibles.map(l => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => `text-lg ${isActive ? 'opacity-100' : 'opacity-50'}`}>
@@ -89,10 +91,31 @@ export default function AdminLayout() {
         <p className="mt-1 font-display text-lg font-semibold text-parchment">{usuario?.nombre}</p>
         <p className="text-xs text-parchment/50">{ETIQUETA_ROL[usuario?.rol] || usuario?.rol}</p>
 
-        <div className="mt-5 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3">
-          <p className="text-xs uppercase tracking-wide text-gold-light">Registros del evento actual</p>
-          <p className="font-display text-2xl font-bold text-parchment">{totalRegistros ?? '…'}</p>
-          {eventoActual && <p className="mt-0.5 text-xs text-parchment/50">{eventoActual.nombre}</p>}
+        <div className="mt-5 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3 text-center">
+          <p className="text-xs uppercase tracking-wide text-gold-light">Evento actual</p>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-parchment/40">Inscritos</p>
+              <p className="font-display text-2xl font-bold text-parchment">{eventoActual?.total_ciclo_actual ?? '…'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-parchment/40">Registrados</p>
+              <p className="font-display text-2xl font-bold text-parchment">{eventoActual?.total_registrados_general ?? '…'}</p>
+              {eventoActual && (
+                <p className="text-[10px] text-parchment/40">
+                  ={eventoActual.total_registrados} R{eventoActual.total_sin_requisitos > 0 ? ` + ${eventoActual.total_sin_requisitos} SR` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+          {eventoActual && (() => {
+            const [titulo, subtitulo] = eventoActual.nombre.split(/:\s*/, 2);
+            return (
+              <p className="mt-2 text-xs text-parchment/50">
+                {titulo}{subtitulo && <><br />{subtitulo}</>}
+              </p>
+            );
+          })()}
         </div>
 
         <nav className="mt-8 space-y-1">

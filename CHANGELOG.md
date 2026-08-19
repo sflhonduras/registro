@@ -1,5 +1,26 @@
 # Historial de versiones — Sistema SFL FIHNEC
 
+## v1.2.0 — 19 de agosto de 2026
+- Módulo de cumpleaños en el Portal del Servidor: pantalla de celebración de pantalla
+  completa el día exacto, más 4 efectos ambientales sutiles durante todo el mes
+  (confeti, cajas de regalo, destellos, globos) y badge en la credencial
+- Versículos bíblicos rotativos: banco general (todos, cada día) y banco especial de
+  cumpleaños, con rotación automática por fecha — sin tarea programada
+- Diplomas: el conteo ahora suma Participantes Sin Requisitos del mismo nivel/ciclo al
+  total, sin afectar las exportaciones (Excel/PDF/Imprimir)
+- Panel lateral: desglose "Inscritos | Registrados" (con el detalle de cuántos son
+  Con y Sin Requisitos), reemplaza el contador único anterior
+- Reportería: nueva opción para incluir Participantes Sin Requisitos del nivel/ciclo
+  actual en cualquier reporte, con secciones separadas y total general
+- Nuevo módulo: Informes de Cierre de Nivel — se genera automáticamente al cambiar
+  cuál nivel es el actual; página pública (enlace permanente, sin login) con KPIs,
+  perfil demográfico, mapa de Honduras, y descarga como PPTX con diseño de marca,
+  pensado para compartir con la Junta Directiva de FIHNEC
+- Deserción: nuevo criterio basado en fecha de graduación individual (antes esperaba
+  el cierre de todo el ciclo) — aplicado en Estadísticas generales, Reportería y el
+  Informe de Cierre, para que las 3 pantallas siempre coincidan
+- Nueva dependencia de backend: pptxgenjs (generación de PowerPoint)
+
 ## v1.1.0 — 13 de agosto de 2026
 - Módulo "Participantes Sin Requisitos": registro manual de asistentes sin cumplir el
   requisito previo (extranjeros o casos atípicos incluidos), verificación de identidad

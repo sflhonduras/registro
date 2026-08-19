@@ -3,6 +3,7 @@ import { query } from '../db.js';
 import { soloDigitos } from '../texto.js';
 import { diasDe, obtenerMapaDias, guardarDiasServidor } from '../diasAsistencia.js';
 import { verificarPin, cambiarPin } from '../pinSeguridad.js';
+import { obtenerMensajeDelDia } from '../mensajesBiblicos.js';
 
 const router = Router();
 
@@ -44,6 +45,27 @@ async function construirPerfil(servidor) {
     }
   }
 
+  // ¿Hoy es su cumpleaños? Se calcula con SQL (no con JS Date), igual que la lista de
+  // cumpleañeros — evita el mismo problema de zona horaria que ya se corrigió en otro
+  // módulo antes (comparar fechas con JS Date puede desfasarse un día según el servidor).
+  // cumple_mes: true durante TODO el mes de su cumpleaños (incluye el día exacto) — se usa
+  // para el confeti ambiental sutil en todo el Portal, distinto de la pantalla de celebración
+  // de pantalla completa que solo aparece cumple_hoy.
+  let cumple_hoy = false;
+  let cumple_mes = false;
+  if (servidor.fecha_nacimiento) {
+    const { rows: chk } = await query(
+      `SELECT
+         (EXTRACT(MONTH FROM fecha_nacimiento) = EXTRACT(MONTH FROM CURRENT_DATE)
+          AND EXTRACT(DAY FROM fecha_nacimiento) = EXTRACT(DAY FROM CURRENT_DATE)) AS es_hoy,
+         (EXTRACT(MONTH FROM fecha_nacimiento) = EXTRACT(MONTH FROM CURRENT_DATE)) AS es_mes
+       FROM servidores WHERE id = $1`,
+      [servidor.id]
+    );
+    cumple_hoy = chk[0]?.es_hoy || false;
+    cumple_mes = chk[0]?.es_mes || false;
+  }
+
   // Historial real de participación (empezó a grabarse a partir de hoy — puede venir vacío
   // durante un tiempo, y eso está bien, no se inventa nada).
   const { rows: historial } = await query(
@@ -53,10 +75,20 @@ async function construirPerfil(servidor) {
   );
   const totalEventosParticipados = historial.filter(h => h.participo).length;
 
+  // Verso del día: general para todos, o el especial de cumpleaños solo si hoy le toca a
+  // él — nunca los dos a la vez. Si el banco de esa categoría está vacío, viene null y
+  // el frontend simplemente no muestra la tarjeta (no es un hueco raro).
+  const verso_dia = await obtenerMensajeDelDia('general');
+  const verso_cumpleanos = cumple_hoy ? await obtenerMensajeDelDia('cumpleanos') : null;
+
   return {
     ...datos,
     dias_asistencia: diasDe(mapaDias, servidor.id),
     años_servicio,
+    cumple_hoy,
+    cumple_mes,
+    verso_dia,
+    verso_cumpleanos,
     total_eventos_participados: totalEventosParticipados,
     historial_participacion: historial
   };
@@ -282,6 +314,37 @@ router.put('/inventario/:itemId', async (req, res) => {
     [evento.id, req.params.itemId, cantidad_actual ?? null, estado_actual || null]
   );
   res.json({ mensaje: 'Actualizado.' });
+});
+
+/* ------------------------------ CUMPLEAÑEROS DEL MES ------------------------------ */
+// Solo se muestran nombre + día — nunca el año, para no exponer la edad de nadie sin
+// querer al resto del equipo.
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+  'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+// POST /api/servidor-portal/cumpleaneros  body: { dni, pin }
+router.post('/cumpleaneros', async (req, res) => {
+  const servidor = await verificarServidor(req.body?.dni, req.body?.pin);
+  if (!servidor) return res.status(401).json({ error: 'Número de identidad o PIN incorrectos.' });
+  if (bloqueadoPorPinPendiente(servidor, res)) return;
+
+  const hoy = new Date();
+  const mesActual = hoy.getMonth() + 1;
+  const diaHoy = hoy.getDate();
+
+  const { rows } = await query(
+    `SELECT nombre_completo, EXTRACT(DAY FROM fecha_nacimiento)::int AS dia
+     FROM servidores
+     WHERE fecha_nacimiento IS NOT NULL AND EXTRACT(MONTH FROM fecha_nacimiento) = $1
+     ORDER BY dia`,
+    [mesActual]
+  );
+
+  res.json({
+    mes: MESES[mesActual - 1],
+    cumpleañeros: rows.map(r => ({ nombre_completo: r.nombre_completo, dia: r.dia, es_hoy: r.dia === diaHoy }))
+  });
 });
 
 export default router;

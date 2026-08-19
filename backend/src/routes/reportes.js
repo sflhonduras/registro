@@ -247,7 +247,7 @@ async function construirConsulta(q) {
 
     const params = [evento - 1, evento];
     const condiciones = [
-      'i_prev.ciclo <> e_prev.ciclo_actual',
+      'i_prev.fecha_graduacion IS NOT NULL',
       `NOT EXISTS (
         SELECT 1 FROM inscripciones i_cur
         JOIN eventos e_cur ON e_cur.id = i_cur.evento_id
@@ -331,6 +331,67 @@ async function construirConsulta(q) {
   const sql = `SELECT ${selects.join(', ')} ${desdeJoin} ${where} ORDER BY p.nombre_completo ASC`;
 
   const { rows } = await query(sql, params);
+
+  // Inclusión opcional de Participantes Sin Requisitos: solo aplica cuando se eligió un
+  // nivel específico (no "todos") Y "Solo el ciclo actual" — coincide nivel+ciclo exacto,
+  // mismo criterio que ya usa Diplomas. Usa las MISMAS columnas que el usuario eligió;
+  // los 3 campos que vienen de una inscripción formal (Fecha de Registro, Fecha de
+  // Graduación, Promoción) quedan vacíos para estas filas porque esa persona nunca tuvo
+  // una inscripción formal a este nivel — no es un error, es que el dato no existe.
+  if (q.incluir_sin_requisitos === 'true' && evento && q.alcance === 'ciclo_actual') {
+    const { rows: evRows } = await query('SELECT ciclo_actual FROM eventos WHERE orden = $1', [evento]);
+    const cicloActual = evRows[0]?.ciclo_actual;
+
+    if (cicloActual !== undefined) {
+      const paramsSR = [evento, cicloActual];
+      const condicionesSR = [
+        `EXISTS (SELECT 1 FROM jsonb_array_elements(pe.eventos_sin_diploma) ev WHERE (ev->>'orden')::int = $1 AND (ev->>'ciclo')::int = $2)`
+      ];
+      if (q.zona) { paramsSR.push(q.zona); condicionesSR.push(`COALESCE(p.zona, pe.zona) = $${paramsSR.length}`); }
+      if (q.departamento) { paramsSR.push(q.departamento); condicionesSR.push(`COALESCE(p.departamento, pe.departamento) = $${paramsSR.length}`); }
+      if (q.capitulo) { paramsSR.push(`%${q.capitulo}%`); condicionesSR.push(`COALESCE(p.capitulo, pe.capitulo) ILIKE $${paramsSR.length}`); }
+      if (q.buscar) {
+        paramsSR.push(`%${q.buscar}%`);
+        const idx = paramsSR.length;
+        condicionesSR.push(`(COALESCE(p.nombre_completo, pe.nombre_completo) ILIKE $${idx} OR COALESCE(p.dni, pe.dni) ILIKE $${idx} OR COALESCE(p.capitulo, pe.capitulo) ILIKE $${idx} OR COALESCE(p.celular, pe.celular) ILIKE $${idx})`);
+      }
+
+      const { rows: srRows } = await query(
+        `SELECT pe.*, pe.participante_id AS pe_participante_id,
+           p.nombre_completo AS p_nombre_completo, p.dni AS p_dni, p.celular AS p_celular,
+           p.capitulo AS p_capitulo, p.zona AS p_zona, p.departamento AS p_departamento,
+           p.municipio AS p_municipio, p.cargo_fihnec AS p_cargo_fihnec, p.estado_civil AS p_estado_civil,
+           p.hijos_cantidad AS p_hijos_cantidad, p.comparte_testimonio AS p_comparte_testimonio,
+           p.tiempo_comparte_testimonio AS p_tiempo_comparte_testimonio, p.ha_recibido_sael AS p_ha_recibido_sael,
+           p.cantidad_saeles AS p_cantidad_saeles, p.contacto_emergencia_nombre AS p_contacto_emergencia_nombre,
+           p.contacto_emergencia_telefono AS p_contacto_emergencia_telefono, p.observacion AS p_observacion
+         FROM participantes_excepcion pe
+         LEFT JOIN participantes p ON p.id = pe.participante_id
+         WHERE ${condicionesSR.join(' AND ')}
+         ORDER BY COALESCE(p.nombre_completo, pe.nombre_completo) ASC`,
+        paramsSR
+      );
+
+      const filasSinRequisito = srRows.map(r => {
+        const resuelto = (campo) => (r.pe_participante_id ? r[`p_${campo}`] : r[campo]) ?? '';
+        const fila = { _seccion: 'Sin Requisito' };
+        for (const campo of camposPedidos) {
+          if (CAMPOS_PARTICIPANTE[campo]) fila[campo] = resuelto(campo);
+          else if (CAMPOS_INSCRIPCION[campo]) fila[campo] = null; // no aplica: nunca hubo inscripción formal
+        }
+        if (Object.keys(fila).length === 1) fila.nombre_completo = resuelto('nombre_completo');
+        return fila;
+      });
+
+      return {
+        columnas,
+        filas: [...rows.map(f => ({ ...f, _seccion: 'Con Requisito' })), ...filasSinRequisito],
+        evento_resuelto: evento, esDesercion: false, esRepeticiones: false,
+        incluyeSinRequisitos: true
+      };
+    }
+  }
+
   return { columnas, filas: rows, evento_resuelto: evento, esDesercion: false, esRepeticiones: false };
 }
 
@@ -459,11 +520,11 @@ async function obtenerMedallasManualesComoFilas() {
   return filas;
 }
 
-function construirTitulo(eventoResuelto, esDesercion, esRepeticiones, esSinRequisitos) {
+function construirTitulo(eventoResuelto, esDesercion, esRepeticiones, esSinRequisitos, incluyeSinRequisitos) {
   if (esSinRequisitos) return 'Reporte de Participantes Sin Requisitos';
   if (esRepeticiones) return 'Reporte de Repeticiones SFL — Medallas 🏅';
   if (esDesercion) return `Reporte de Deserción SFL ${NIVEL_ROMANO[eventoResuelto]}`;
-  if (eventoResuelto) return `Reporte SFL Nivel ${NIVEL_ROMANO[eventoResuelto]}`;
+  if (eventoResuelto) return `Reporte SFL Nivel ${NIVEL_ROMANO[eventoResuelto]}${incluyeSinRequisitos ? ' (Con y Sin Requisitos)' : ''}`;
   return 'Reporte de Participantes';
 }
 
@@ -474,8 +535,8 @@ function nombreArchivo(titulo, extension) {
 }
 
 router.get('/', async (req, res) => {
-  const { columnas, filas } = await construirConsulta(req.query);
-  res.json({ columnas, filas, total: filas.length });
+  const { columnas, filas, incluyeSinRequisitos } = await construirConsulta(req.query);
+  res.json({ columnas, filas, total: filas.length, incluyeSinRequisitos: !!incluyeSinRequisitos });
 });
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -496,22 +557,41 @@ function formatearValorExport(clave, valor) {
 }
 
 router.get('/excel', async (req, res) => {
-  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos } = await construirConsulta(req.query);
-  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos);
-  const datos = filas.map((f, i) => {
-    const fila = { '#': i + 1 };
-    for (const c of columnas) fila[c.titulo] = formatearValorExport(c.clave, f[c.clave]);
-    return fila;
-  });
-  // Nota: la librería gratuita de Excel que usamos no soporta colores de fondo en las
-  // celdas (eso requiere la versión de pago) — por eso aquí el diseño de marca se limita a
-  // las dos filas de título en texto, sin la banda de color que sí lleva el PDF.
-  const hoja = xlsx.utils.aoa_to_sheet([
+  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos, incluyeSinRequisitos } = await construirConsulta(req.query);
+  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos, incluyeSinRequisitos);
+
+  const filaAOA = (f, numero) => [numero, ...columnas.map(c => formatearValorExport(c.clave, f[c.clave]))];
+  const encabezados = ['#', ...columnas.map(c => c.titulo)];
+  const aoa = [
     ['FIHNEC · Seminario para la Formación de Líderes'],
     [titulo],
     []
-  ]);
-  xlsx.utils.sheet_add_json(hoja, datos, { origin: -1 });
+  ];
+
+  if (incluyeSinRequisitos) {
+    const conRequisito = filas.filter(f => f._seccion === 'Con Requisito');
+    const sinRequisito = filas.filter(f => f._seccion === 'Sin Requisito');
+
+    aoa.push([`Con Requisito (${conRequisito.length})`]);
+    aoa.push(encabezados);
+    conRequisito.forEach((f, i) => aoa.push(filaAOA(f, i + 1)));
+    aoa.push([]);
+
+    aoa.push([`Sin Requisito (${sinRequisito.length})`]);
+    aoa.push(encabezados);
+    sinRequisito.forEach((f, i) => aoa.push(filaAOA(f, i + 1)));
+    aoa.push([]);
+
+    aoa.push([`Total general: ${filas.length} (${conRequisito.length} con requisito + ${sinRequisito.length} sin requisito)`]);
+  } else {
+    aoa.push(encabezados);
+    filas.forEach((f, i) => aoa.push(filaAOA(f, i + 1)));
+  }
+
+  // Nota: la librería gratuita de Excel que usamos no soporta colores de fondo en las
+  // celdas (eso requiere la versión de pago) — por eso aquí el diseño de marca se limita a
+  // las dos filas de título en texto, sin la banda de color que sí lleva el PDF.
+  const hoja = xlsx.utils.aoa_to_sheet(aoa);
   const libro = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(libro, hoja, 'Reporte');
   const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
@@ -530,8 +610,8 @@ const INK = '#2B2118';
 const LINEA = '#D8CBAE';
 
 router.get('/pdf', async (req, res) => {
-  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos } = await construirConsulta(req.query);
-  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos);
+  const { columnas, filas, evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos, incluyeSinRequisitos } = await construirConsulta(req.query);
+  const titulo = construirTitulo(evento_resuelto, esDesercion, esRepeticiones, esSinRequisitos, incluyeSinRequisitos);
   const colorTitulo = esDesercion ? EMBER : GOLD;
   const colorBandaTabla = esDesercion ? BANNER_BG_DESERCION : BANNER_BG_NORMAL;
 
@@ -613,17 +693,59 @@ router.get('/pdf', async (req, res) => {
     doc.moveTo(MARGEN, doc.y - 3).lineTo(ANCHO - MARGEN, doc.y - 3).lineWidth(0.5).strokeColor(LINEA).stroke();
   }
 
-  dibujarFilaEncabezado();
-
-  filas.forEach((f, i) => {
-    const valores = [i + 1, ...columnas.map(c => formatearValorExport(c.clave, f[c.clave]))];
-    if (doc.y + alturaFila(valores) > doc.page.height - 40) {
+  function dibujarBandaSeccion(texto, colorFondo, colorTexto) {
+    if (doc.y + 30 > doc.page.height - 40) {
       doc.addPage({ size: 'letter', layout, margin: 0 });
       dibujarEncabezadoMarca();
-      dibujarFilaEncabezado();
     }
-    dibujarFilaDato(valores);
-  });
+    doc.rect(MARGEN, doc.y, ANCHO_UTIL, 22).fill(colorFondo);
+    doc.fillColor(colorTexto).font('Helvetica-Bold').fontSize(10).text(texto, MARGEN + 8, doc.y + 6);
+    doc.y += 28;
+  }
+
+  dibujarFilaEncabezado();
+
+  if (incluyeSinRequisitos) {
+    const conRequisito = filas.filter(f => f._seccion === 'Con Requisito');
+    const sinRequisito = filas.filter(f => f._seccion === 'Sin Requisito');
+
+    dibujarBandaSeccion(`CON REQUISITO (${conRequisito.length})`, '#DCE9DE', '#1F4A2C');
+    conRequisito.forEach((f, i) => {
+      const valores = [i + 1, ...columnas.map(c => formatearValorExport(c.clave, f[c.clave]))];
+      if (doc.y + alturaFila(valores) > doc.page.height - 40) {
+        doc.addPage({ size: 'letter', layout, margin: 0 });
+        dibujarEncabezadoMarca();
+        dibujarFilaEncabezado();
+      }
+      dibujarFilaDato(valores);
+    });
+
+    dibujarBandaSeccion(`SIN REQUISITO (${sinRequisito.length})`, BANNER_BG_DESERCION, EMBER);
+    sinRequisito.forEach((f, i) => {
+      const valores = [i + 1, ...columnas.map(c => formatearValorExport(c.clave, f[c.clave]))];
+      if (doc.y + alturaFila(valores) > doc.page.height - 40) {
+        doc.addPage({ size: 'letter', layout, margin: 0 });
+        dibujarEncabezadoMarca();
+        dibujarFilaEncabezado();
+      }
+      dibujarFilaDato(valores);
+    });
+
+    dibujarBandaSeccion(
+      `TOTAL GENERAL: ${filas.length}  (${conRequisito.length} con requisito + ${sinRequisito.length} sin requisito)`,
+      NIGHT, PARCHMENT
+    );
+  } else {
+    filas.forEach((f, i) => {
+      const valores = [i + 1, ...columnas.map(c => formatearValorExport(c.clave, f[c.clave]))];
+      if (doc.y + alturaFila(valores) > doc.page.height - 40) {
+        doc.addPage({ size: 'letter', layout, margin: 0 });
+        dibujarEncabezadoMarca();
+        dibujarFilaEncabezado();
+      }
+      dibujarFilaDato(valores);
+    });
+  }
 
   doc.end();
 });

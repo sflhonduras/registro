@@ -33,6 +33,7 @@ function Tarjeta({ titulo, valor, nota, desercion, onClick }) {
 export default function AdminDashboard() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
+  const [enlaceCopiado, setEnlaceCopiado] = useState(false);
   const nav = useNavigate();
   const [vistaMapa, setVistaMapa] = useState('historico');
   const [nivelMapa, setNivelMapa] = useState(2);
@@ -66,7 +67,7 @@ export default function AdminDashboard() {
         <p className="text-sm text-ink/50">Vista en tiempo real de la base de datos SFL. Haz clic en una tarjeta o barra para ver el detalle.</p>
       </div>
 
-      {(datos.promocion_actual || datos.total_graduados_nivel_4 != null) && (
+      {(datos.promocion_actual || datos.total_graduados_nivel_4 != null || datos.ultimo_informe) && (
         <div className="flex flex-wrap gap-4">
           {datos.promocion_actual && (
             <div className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-gold/30 bg-gold/10 px-6 py-4">
@@ -100,6 +101,38 @@ export default function AdminDashboard() {
                 <p className="text-sm text-ink/60"><span className="font-display text-xl font-bold text-gold">{datos.total_sin_requisitos}</span> participante(s) esperando ponerse al día</p>
               </div>
             </button>
+          )}
+          {datos.ultimo_informe && (
+            <div className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-ember/30 bg-ember/10 px-6 py-4">
+              <span className="font-display text-4xl font-bold text-ember">📊</span>
+              <div className="flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">
+                  Informe {datos.ultimo_informe.congelado ? 'de cierre' : 'en vivo'}
+                </p>
+                <p className="text-sm text-ink/60">
+                  SFL Nivel {numeroARomano(datos.ultimo_informe.evento_orden)} — para la Junta Directiva de FIHNEC
+                </p>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <a
+                    href={`${window.location.origin}/informe/${datos.ultimo_informe.token}`}
+                    target="_blank" rel="noreferrer"
+                    className="text-xs font-semibold text-ember hover:underline"
+                  >
+                    Ver informe →
+                  </a>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/informe/${datos.ultimo_informe.token}`);
+                      setEnlaceCopiado(true);
+                      setTimeout(() => setEnlaceCopiado(false), 2000);
+                    }}
+                    className="text-xs font-semibold text-ember hover:underline"
+                  >
+                    {enlaceCopiado ? '✓ ¡Copiado!' : '📋 Copiar enlace'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}

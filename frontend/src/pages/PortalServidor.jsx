@@ -36,6 +36,191 @@ function LlamaFirma({ className = '' }) {
   );
 }
 
+// Confeti cayendo, hecho con CSS puro — sin agregar ninguna librería nueva al proyecto.
+const COLORES_CONFETI = ['#C9932F', '#E7B85C', '#B23A2E', '#4C7A5C', '#FBF6EC'];
+function Confeti() {
+  const piezas = useMemo(() => Array.from({ length: 60 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    color: COLORES_CONFETI[i % COLORES_CONFETI.length],
+    duracion: 2.5 + Math.random() * 2,
+    retraso: Math.random() * 1.5,
+    ancho: 6 + Math.random() * 6,
+    alto: 10 + Math.random() * 8,
+    redondo: Math.random() > 0.6
+  })), []);
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden">
+      {piezas.map(p => (
+        <span key={p.id} className="confeti-pieza" style={{
+          left: `${p.left}%`, width: p.ancho, height: p.alto, backgroundColor: p.color,
+          animationDuration: `${p.duracion}s`, animationDelay: `${p.retraso}s`,
+          borderRadius: p.redondo ? '50%' : '2px'
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// Confeti ambiental: se muestra durante TODO el mes del cumpleaños (perfil.cumple_mes),
+// en cualquier pestaña del Portal — a diferencia de Confeti(), que es el efecto grande de
+// pantalla completa reservado solo para el día exacto. Pocas piezas, confinadas a las
+// esquinas izquierda/derecha, opacidad baja y caída lenta: decorativo, no invasivo.
+function ConfetiAmbiente() {
+  const piezas = useMemo(() => {
+    const generar = (ladoIzquierdo) => Array.from({ length: 7 }, (_, i) => ({
+      id: `${ladoIzquierdo ? 'i' : 'd'}-${i}`,
+      left: ladoIzquierdo ? Math.random() * 14 : 86 + Math.random() * 14,
+      color: COLORES_CONFETI[i % COLORES_CONFETI.length],
+      duracion: 9 + Math.random() * 6,
+      retraso: Math.random() * 10,
+      ancho: 5 + Math.random() * 4,
+      alto: 8 + Math.random() * 6,
+      redondo: Math.random() > 0.5
+    }));
+    return [...generar(true), ...generar(false)];
+  }, []);
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+      {piezas.map(p => (
+        <span key={p.id} className="confeti-ambiente-pieza" style={{
+          left: `${p.left}%`, width: p.ancho, height: p.alto, backgroundColor: p.color,
+          animationDuration: `${p.duracion}s`, animationDelay: `${p.retraso}s`,
+          borderRadius: p.redondo ? '50%' : '2px'
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// Cajas de regalo cayendo: mismo criterio de sutileza que el confeti ambiental, pero con
+// emoji de regalo — más grandes, muchas menos piezas y caída más lenta, para que se noten
+// sin competir con el confeti.
+function CajasRegaloAmbiente() {
+  const piezas = useMemo(() => {
+    const generar = (izquierda) => Array.from({ length: 3 }, (_, i) => ({
+      id: `${izquierda ? 'i' : 'd'}-${i}`,
+      left: izquierda ? Math.random() * 12 : 88 + Math.random() * 12,
+      tamaño: 18 + Math.random() * 8,
+      duracion: 14 + Math.random() * 8,
+      retraso: Math.random() * 14
+    }));
+    return [...generar(true), ...generar(false)];
+  }, []);
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+      {piezas.map(p => (
+        <span key={p.id} className="regalo-ambiente-pieza" style={{
+          left: `${p.left}%`, fontSize: p.tamaño,
+          animationDuration: `${p.duracion}s`, animationDelay: `${p.retraso}s`
+        }}>🎁</span>
+      ))}
+    </div>
+  );
+}
+
+// Destellos dorados: el efecto más discreto de los cuatro — parpadeo suave y fijo, sin
+// caída ni desplazamiento, esparcidos cerca de los bordes.
+function DestellosAmbiente() {
+  const piezas = useMemo(() => Array.from({ length: 10 }, (_, i) => {
+    const izquierda = i % 2 === 0;
+    return {
+      id: i,
+      left: izquierda ? Math.random() * 16 : 84 + Math.random() * 16,
+      top: 5 + Math.random() * 90,
+      tamaño: 10 + Math.random() * 8,
+      duracion: 2.5 + Math.random() * 2.5,
+      retraso: Math.random() * 4
+    };
+  }), []);
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+      {piezas.map(p => (
+        <span key={p.id} className="destello-ambiente-pieza text-gold-light" style={{
+          left: `${p.left}%`, top: `${p.top}%`, fontSize: p.tamaño,
+          animationDuration: `${p.duracion}s`, animationDelay: `${p.retraso}s`
+        }}>✦</span>
+      ))}
+    </div>
+  );
+}
+
+// Globos subiendo: flotan desde abajo con balanceo lateral, confinados a los costados para
+// no cruzar nunca el contenido central.
+function GlobosAmbiente() {
+  const piezas = useMemo(() => {
+    const generar = (izquierda) => Array.from({ length: 3 }, (_, i) => ({
+      id: `${izquierda ? 'i' : 'd'}-${i}`,
+      left: izquierda ? Math.random() * 10 : 90 + Math.random() * 10,
+      tamaño: 20 + Math.random() * 10,
+      duracion: 16 + Math.random() * 8,
+      retraso: Math.random() * 16
+    }));
+    return [...generar(true), ...generar(false)];
+  }, []);
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+      {piezas.map(p => (
+        <span key={p.id} className="globo-ambiente-pieza" style={{
+          left: `${p.left}%`, fontSize: p.tamaño,
+          animationDuration: `${p.duracion}s`, animationDelay: `${p.retraso}s`
+        }}>🎈</span>
+      ))}
+    </div>
+  );
+}
+
+// Agrupa los 4 efectos ambientales del mes de cumpleaños, para no repetir la condición
+// perfil.cumple_mes cuatro veces en el JSX principal.
+function EfectosMesCumpleanos() {
+  return (
+    <>
+      <ConfetiAmbiente />
+      <CajasRegaloAmbiente />
+      <DestellosAmbiente />
+      <GlobosAmbiente />
+    </>
+  );
+}
+
+function CelebracionCumpleanos({ nombre, verso, onContinuar }) {
+  const primerNombre = nombre?.split(' ')[0] || '';
+  return (
+    <section className="relative min-h-[85vh] overflow-hidden bg-night grain-overlay">
+      <Confeti />
+      <div className="pointer-events-none absolute -top-24 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-ember/25 blur-3xl" />
+      <div className="relative mx-auto flex min-h-[85vh] max-w-md flex-col items-center justify-center px-5 py-16 text-center">
+        <span className="text-6xl">🎂</span>
+        <p className="mt-4 inline-block rounded-full border border-gold/30 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-gold-light">
+          FIHNEC · Portal del Servidor
+        </p>
+        <h1 className="mt-3 font-display text-4xl font-bold text-parchment">
+          ¡Feliz cumpleaños, <span className="text-gold-light">{primerNombre}</span>!
+        </h1>
+        {/* Verso especial de cumpleaños: rota por fecha, sacado de un banco distinto al
+            verso general del día. Si todavía no hay versos activos en esa categoría, se
+            mantiene el mensaje genérico original — la pantalla nunca se ve rota. */}
+        {verso ? (
+          <div className="mx-auto mt-4 max-w-sm">
+            <p className="text-balance font-display text-lg italic leading-snug text-parchment/90">
+              &ldquo;{verso.texto}&rdquo;
+            </p>
+            <p className="mt-2 text-sm font-semibold text-gold-light">{verso.referencia}</p>
+          </div>
+        ) : (
+          <p className="mx-auto mt-3 max-w-sm text-balance text-parchment/70">
+            Gracias por tu servicio y por ser parte de esta familia. Que este nuevo año esté lleno de bendición.
+          </p>
+        )}
+        <button onClick={onContinuar}
+          className="mt-8 rounded-full bg-gold px-8 py-3 font-semibold text-night transition hover:bg-gold-light">
+          Continuar
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function PortalServidor() {
   const [params] = useSearchParams();
   const [dni, setDni] = useState(params.get('dni') || '');
@@ -50,6 +235,7 @@ export default function PortalServidor() {
   const [pinNuevoConfirmar, setPinNuevoConfirmar] = useState('');
   const [errorPin, setErrorPin] = useState('');
   const [guardandoPin, setGuardandoPin] = useState(false);
+  const [celebrando, setCelebrando] = useState(true);
 
   const credenciales = () => ({ dni, pin });
 
@@ -161,8 +347,18 @@ export default function PortalServidor() {
     );
   }
 
+  // Celebración: si hoy es su cumpleaños y no la ha cerrado todavía, ve esto primero —
+  // solo él la ve, nadie más entra a esta pantalla.
+  if (perfil.cumple_hoy && celebrando) {
+    return <CelebracionCumpleanos nombre={perfil.nombre_completo} verso={perfil.verso_cumpleanos} onContinuar={() => setCelebrando(false)} />;
+  }
+
   return (
     <div className="mx-auto max-w-2xl px-5 py-10">
+      {/* Efectos ambientales: todo el mes de su cumpleaños, persisten sin importar la
+          pestaña activa porque viven fuera del bloque condicional de abajo. */}
+      {perfil.cumple_mes && <EfectosMesCumpleanos />}
+
       {/* Barra de herramientas: botones reales, no enlaces de texto */}
       <div className="flex items-center justify-between gap-2">
         {pestaña !== null ? (
@@ -186,6 +382,11 @@ export default function PortalServidor() {
           {perfil.capitulo && (
             <p className="mt-1 text-sm text-parchment/60">{perfil.capitulo}</p>
           )}
+          {perfil.cumple_mes && (
+            <span className="brillo-festivo mt-2 inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gold-light">
+              🎉 Mes de cumpleaños
+            </span>
+          )}
         </div>
       </div>
 
@@ -193,7 +394,9 @@ export default function PortalServidor() {
       <div className="mt-4 space-y-3">
         {pestaña === null && (
           <>
+            <TarjetaVersoDia verso={perfil.verso_dia} />
             <PanelEstadisticas perfil={perfil} />
+            <TarjetaCumpleañeros credenciales={credenciales} />
             <TarjetaDiasInline perfil={perfil} setPerfil={setPerfil} credenciales={credenciales} />
             <TarjetaAcceso icono="📇" color="palm" titulo="Mis datos de contacto"
               subtitulo="Toda tu ficha — nadie la conoce mejor que tú" onClick={() => setPestaña('datos')} />
@@ -287,6 +490,66 @@ function PanelEstadisticas({ perfil }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Cumpleañeros del mes — todo el equipo, no solo el que entró. Solo nombre + día, nunca
+// el año, para no exponer la edad de nadie sin querer.
+function TarjetaCumpleañeros({ credenciales }) {
+  const [datos, setDatos] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    api.post('/servidor-portal/cumpleaneros', credenciales()).then(r => setDatos(r.data)).finally(() => setCargando(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (cargando) return null;
+  if (!datos || datos.cumpleañeros.length === 0) return null;
+
+  const iconos = ['🎈', '🎁', '🎊', '🧁', '🍰'];
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-gold/10 via-white to-ember/5 p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gold">
+        🎉 Cumpleañeros de {datos.mes}
+      </p>
+      <div className="mt-3 space-y-2">
+        {datos.cumpleañeros.map((c, i) => (
+          <div key={i}
+            className={`flex items-center justify-between gap-3 rounded-full px-4 py-2.5 text-sm transition ${
+              c.es_hoy
+                ? 'brillo-festivo border border-gold bg-gradient-to-r from-gold/25 to-ember/15 shadow-sm'
+                : 'bg-white/70'
+            }`}>
+            <span className="flex items-center gap-2">
+              <span className="text-lg">{c.es_hoy ? '🎂' : iconos[i % iconos.length]}</span>
+              <span className={c.es_hoy ? 'font-bold text-ink' : 'text-ink/70'}>
+                {c.nombre_completo}{c.es_hoy && ' — ¡Hoy!'}
+              </span>
+            </span>
+            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs ${c.es_hoy ? 'bg-gold text-night font-bold' : 'bg-parchment-2 text-ink/50'}`}>
+              Día {c.dia}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Verso general del día — el mismo para todos, distinto del lema fijo del login (Juan
+// 12:26, que no se toca ni se reemplaza). Si el banco "general" todavía no tiene versos
+// activos, no se muestra nada — no es un hueco raro, la tarjeta simplemente no aparece.
+function TarjetaVersoDia({ verso }) {
+  if (!verso) return null;
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-gold/25 bg-night p-5 shadow-sm grain-overlay">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gold-light">📖 Verso del día</p>
+      <p className="mt-2 text-balance font-display italic leading-snug text-parchment/90">
+        &ldquo;{verso.texto}&rdquo;
+      </p>
+      <p className="mt-2 text-sm font-semibold text-gold">{verso.referencia}</p>
     </div>
   );
 }

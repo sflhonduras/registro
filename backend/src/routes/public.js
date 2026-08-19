@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
 import { MUNICIPIOS_POR_DEPARTAMENTO } from '../municipios.js';
+import { obtenerInformePorToken } from '../informesCierre.js';
+import { generarInformePptx } from '../informePptx.js';
 
 const router = Router();
 
@@ -309,6 +311,28 @@ router.get('/consulta/:orden/:dni', async (req, res) => {
     [participante.id, evAnterior.id]
   );
   res.json({ existe: true, nombre: participante.nombre_completo, habilitado: !!insc.rows[0] });
+});
+
+// GET /api/informe-publico/:token -> ver un informe de cierre de nivel SIN login, para
+// compartir con la Junta Directiva de FIHNEC (u otros externos). El token es la única
+// llave — nunca expira, quien lo tenga puede verlo, igual que un enlace de Google Docs.
+router.get('/informe-publico/:token', async (req, res) => {
+  const informe = await obtenerInformePorToken(req.params.token);
+  if (!informe) return res.status(404).json({ error: 'Este enlace no existe o ya no es válido.' });
+  res.json(informe);
+});
+
+// GET /api/informe-publico/:token/pptx -> arma el PPTX al momento y lo descarga. No se
+// guarda nada en disco ni en la base de datos — se genera de nuevo cada vez que lo piden.
+router.get('/informe-publico/:token/pptx', async (req, res) => {
+  const informe = await obtenerInformePorToken(req.params.token);
+  if (!informe) return res.status(404).json({ error: 'Este enlace no existe o ya no es válido.' });
+
+  const nivelRomano = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV' }[informe.evento_orden] || informe.evento_orden;
+  const buffer = await generarInformePptx(informe);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+  res.setHeader('Content-Disposition', `attachment; filename="Informe_SFL_Nivel_${nivelRomano}.pptx"`);
+  res.send(buffer);
 });
 
 export default router;
