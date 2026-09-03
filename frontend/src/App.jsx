@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import RegistroEvento1 from './pages/RegistroEvento1';
 import InformeCierreNivel from './pages/InformeCierreNivel';
+import EsperaServidor from './components/EsperaServidor';
 import RegistroEventoN from './pages/RegistroEventoN';
 import Autoconsulta from './pages/Autoconsulta';
 import PortalServidor from './pages/PortalServidor';
@@ -40,14 +41,14 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<PublicShell><Home /></PublicShell>} />
-        <Route path="/registro/1" element={<PublicShell><RegistroEvento1 /></PublicShell>} />
-        <Route path="/registro/:orden" element={<PublicShell><RegistroEventoN /></PublicShell>} />
+        <Route path="/registro/1" element={<PublicShell><EsperaServidor tema="claro" mensaje="para tu inscripción"><RegistroEvento1 /></EsperaServidor></PublicShell>} />
+        <Route path="/registro/:orden" element={<PublicShell><EsperaServidor tema="claro" mensaje="para tu inscripción"><RegistroEventoN /></EsperaServidor></PublicShell>} />
         <Route path="/autoconsulta" element={<PublicShell><Autoconsulta /></PublicShell>} />
         <Route path="/servidores/portal" element={<PublicShell><PortalServidor /></PublicShell>} />
         <Route path="/informe/:token" element={<InformeCierreNivel />} />
 
         <Route path="/admin">
-          <Route index element={<PublicShell><AdminLogin /></PublicShell>} />
+          <Route index element={<PublicShell><EsperaServidor tema="oscuro" mensaje="para tu sesión"><AdminLogin /></EsperaServidor></PublicShell>} />
           <Route path="cocina" element={<ProtectedRoute><CocinaDashboard /></ProtectedRoute>} />
           <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
             <Route path="panel" element={<AdminDashboard />} />
