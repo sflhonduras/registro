@@ -41,7 +41,7 @@ export default function CocinaDashboard() {
               <p className="mt-1 font-display text-5xl font-bold text-parchment">{datos.participantes}</p>
             </div>
             <div className="rounded-2xl border border-parchment/15 bg-night-2 px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-parchment/50">Servidores SFL</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-parchment/50">Servidores</p>
               <p className="mt-1 font-display text-5xl font-bold text-parchment">{datos.servidores}</p>
             </div>
           </div>

@@ -417,7 +417,7 @@ export default function AdminServidores() {
         ${COLUMNAS_IMPRESION.map(([clave]) => `<td>${clave === 'fecha_nacimiento' ? formatearFechaCorta(s[clave]) : (s[clave] ?? '—')}</td>`).join('')}
       </tr>`).join('');
     const html = `
-      <html><head><title>Servidores SFL</title>
+      <html><head><title>Servidores</title>
       <style>
         @page { size: letter landscape; margin: 18mm 12mm; }
         body { font-family: Arial, Helvetica, sans-serif; color: #2B2118; margin: 0; }
@@ -434,7 +434,7 @@ export default function AdminServidores() {
       <body>
         <div class="banda">
           <p class="marca">FIHNEC HONDURAS</p>
-          <h1>Servidores del SFL</h1>
+          <h1>Servidores</h1>
         </div>
         <div class="linea-oro"></div>
         <div class="contenido">
@@ -457,7 +457,7 @@ export default function AdminServidores() {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold text-ink">Servidores SFL</h1>
+          <h1 className="font-display text-2xl font-bold text-ink">Servidores</h1>
           <p className="text-sm text-ink/50">
             {servidores.length} servidores registrados · {totalParticipando} participarán en el evento actual
             {totalCumpleaneros > 0 && <> · 🎂 {totalCumpleaneros} de cumpleaños este mes</>}

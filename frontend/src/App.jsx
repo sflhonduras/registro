@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import RegistroEvento1 from './pages/RegistroEvento1';
 import InformeCierreNivel from './pages/InformeCierreNivel';
+import RegistroEnVivo from './pages/RegistroEnVivo';
 import EsperaServidor from './components/EsperaServidor';
 import RegistroEventoN from './pages/RegistroEventoN';
 import Autoconsulta from './pages/Autoconsulta';
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/autoconsulta" element={<PublicShell><Autoconsulta /></PublicShell>} />
         <Route path="/servidores/portal" element={<PublicShell><PortalServidor /></PublicShell>} />
         <Route path="/informe/:token" element={<InformeCierreNivel />} />
+        <Route path="/en-vivo/:token" element={<RegistroEnVivo />} />
 
         <Route path="/admin">
           <Route index element={<PublicShell><EsperaServidor tema="oscuro" mensaje="para tu sesión"><AdminLogin /></EsperaServidor></PublicShell>} />

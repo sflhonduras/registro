@@ -10,11 +10,12 @@ import HondurasMapa from '../components/HondurasMapa';
 
 const COLORES = ['#C9932F', '#B23A2E', '#2F5D3A', '#8A6A3C', '#6B7280'];
 
-function Tarjeta({ titulo, valor, nota, desercion, onClick }) {
+function Tarjeta({ titulo, valor, nota, desercion, onClick, color = '#9A6136' }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-2xl border border-ink/10 bg-white p-3 text-left shadow-sm transition ${onClick ? 'hover:border-gold/40 hover:shadow-md cursor-pointer' : ''}`}
+      style={{ borderLeftColor: color }}
+      className={`rounded-2xl border border-ink/10 border-l-4 bg-white p-3 text-left shadow-sm transition ${onClick ? 'hover:border-gold/40 hover:shadow-md cursor-pointer' : ''}`}
     >
       <p className="text-[10px] font-semibold uppercase leading-tight tracking-wide text-ink/50">{titulo}</p>
       <p className="mt-1.5 font-display text-2xl font-bold text-ink">{valor}</p>
@@ -34,6 +35,8 @@ export default function AdminDashboard() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [enlaceCopiado, setEnlaceCopiado] = useState(false);
+  const [enlaceEnVivo, setEnlaceEnVivo] = useState(null);
+  const [enlaceEnVivoCopiado, setEnlaceEnVivoCopiado] = useState(false);
   const nav = useNavigate();
   const [vistaMapa, setVistaMapa] = useState('historico');
   const [nivelMapa, setNivelMapa] = useState(2);
@@ -44,6 +47,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     api.get('/admin/estadisticas').then(r => setDatos(r.data)).catch(() => setError('No se pudieron cargar las estadísticas.'));
+    api.get('/admin/enlace-en-vivo').then(r => setEnlaceEnVivo(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -67,7 +71,7 @@ export default function AdminDashboard() {
         <p className="text-sm text-ink/50">Vista en tiempo real de la base de datos SFL. Haz clic en una tarjeta o barra para ver el detalle.</p>
       </div>
 
-      {(datos.promocion_actual || datos.total_graduados_nivel_4 != null || datos.ultimo_informe) && (
+      {(datos.promocion_actual || datos.total_graduados_nivel_4 != null || datos.ultimo_informe || enlaceEnVivo) && (
         <div className="flex flex-wrap gap-4">
           {datos.promocion_actual && (
             <div className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-gold/30 bg-gold/10 px-6 py-4">
@@ -134,15 +138,45 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
+
+          {enlaceEnVivo && (
+            <div className="flex flex-1 min-w-[260px] items-center gap-4 rounded-2xl border border-palm/30 bg-palm/10 px-6 py-4">
+              <span className="font-display text-4xl font-bold text-palm">📍</span>
+              <div className="flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Registro en vivo</p>
+                <p className="text-sm text-ink/60">Mapa y conteo en tiempo real — enlace público, vence en 72 horas</p>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <a
+                    href={`${window.location.origin}/en-vivo/${enlaceEnVivo.token}`}
+                    target="_blank" rel="noreferrer"
+                    className="text-xs font-semibold text-palm hover:underline"
+                  >
+                    Ver en vivo →
+                  </a>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/en-vivo/${enlaceEnVivo.token}`);
+                      setEnlaceEnVivoCopiado(true);
+                      setTimeout(() => setEnlaceEnVivoCopiado(false), 2000);
+                    }}
+                    className="text-xs font-semibold text-palm hover:underline"
+                  >
+                    {enlaceEnVivoCopiado ? '✓ ¡Copiado!' : '📋 Copiar enlace'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros"
+        <Tarjeta titulo="Total histórico" valor={datos.total_participantes} nota="Todos los registros" color="#9A6136"
           onClick={() => nav('/admin/reportes?evento=todos')} />
-        {datos.por_evento.map(e => (
+        {datos.por_evento.map((e, i) => (
           <Tarjeta key={e.orden} titulo={`${e.es_actual ? '⭐ ' : ''}Nivel ${e.orden} · Ciclo #${e.ciclo_actual}`} valor={e.total_ciclo_actual}
             nota={`${e.total_inscritos} histórico`} desercion={e.desercion}
+            color={['#C9932F', '#F59D24', '#2F5D3A', '#9A6136'][i % 4]}
             onClick={() => nav(`/admin/reportes?evento=${e.orden}&alcance=ciclo_actual`)} />
         ))}
       </div>
@@ -164,7 +198,7 @@ export default function AdminDashboard() {
       </a>
 
       {datos.graduados_por_promocion && datos.graduados_por_promocion.length > 0 && (
-        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-ink/10 border-l-4 border-l-[#C9932F] bg-white p-5 shadow-sm">
           <p className="mb-1 font-semibold text-ink">🎓 Graduados por Promoción</p>
           <p className="mb-4 text-xs text-ink/40">Graduados del Nivel IV agrupados por promoción. Haz clic para ver el reporte completo de esa promoción.</p>
           <div className="flex flex-wrap gap-3">
@@ -182,7 +216,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-ink/10 border-l-4 border-l-[#2F5D3A] bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="mb-1 font-semibold text-ink">🗺️ Mapa de Honduras</p>
@@ -225,7 +259,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-ink/10 border-l-4 border-l-[#C9932F] bg-white p-5 shadow-sm">
           <p className="mb-4 font-semibold text-ink">Embudo de avance por nivel</p>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={datos.embudo} onClick={(e) => e?.activeLabel && nav(`/admin/participantes?evento=${e.activeLabel}`)}>
@@ -238,7 +272,7 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-ink/10 border-l-4 border-l-[#9A6136] bg-white p-5 shadow-sm">
           <p className="mb-4 font-semibold text-ink">Distribución de participantes por nivel</p>
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
@@ -261,7 +295,7 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-ink/10 border-l-4 border-l-[#2F5D3A] bg-white p-5 shadow-sm">
           <p className="mb-4 font-semibold text-ink">Participantes por zona</p>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={datos.por_zona.slice(0, 12)} layout="vertical" margin={{ left: 40 }}>
@@ -274,7 +308,7 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-ink/10 border-l-4 border-l-ember bg-white p-5 shadow-sm">
           <p className="mb-4 font-semibold text-ink">Participantes por departamento</p>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={datos.por_departamento} layout="vertical" margin={{ left: 60 }}>

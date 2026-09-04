@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
 import { numeroARomano } from '../romano';
 import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
@@ -608,9 +607,6 @@ export default function AdminDiplomasSinRequisitos() {
 
   return (
     <div>
-      <Link to="/admin/diplomas" className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-ink/50 hover:text-ink">
-        <span aria-hidden>←</span> Volver a Diplomas
-      </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">Participantes Sin Requisitos</h1>
@@ -632,14 +628,17 @@ export default function AdminDiplomasSinRequisitos() {
       </div>
 
       <form onSubmit={buscarAhora} className="mt-5 flex gap-2">
-        <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar por nombre o DNI"
-          className="w-full max-w-sm rounded-lg border border-ink/15 px-3.5 py-2 text-sm" />
-        <button className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5">Buscar</button>
+        <div className="relative w-full max-w-sm">
+          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/30">🔍</span>
+          <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar por nombre o DNI"
+            className="w-full rounded-full border border-gold/30 bg-white py-2.5 pl-9 pr-3.5 text-sm shadow-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20" />
+        </div>
+        <button className="rounded-full bg-ink px-5 py-2 text-sm font-semibold text-parchment hover:bg-ink/80">Buscar</button>
       </form>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
+          <thead className="bg-gold text-xs font-semibold uppercase tracking-wide text-night">
             <tr>
               <th className="px-4 py-3">Nombre Completo</th>
               <th className="px-4 py-3">DNI</th>
@@ -650,8 +649,8 @@ export default function AdminDiplomasSinRequisitos() {
           </thead>
           <tbody>
             {cargando && <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
-            {!cargando && datos.map(f => (
-              <tr key={f.id} className="border-t border-ink/5">
+            {!cargando && datos.map((f, i) => (
+              <tr key={f.id} className={`border-t border-ink/5 hover:bg-gold/10 ${i % 2 === 1 ? 'bg-gold-pale/25' : 'bg-white'}`}>
                 <td className="px-4 py-2.5 font-medium text-ink">
                   {f.nombre_completo}
                   {f.participante_id && <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-semibold text-gold">enlazado</span>}

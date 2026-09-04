@@ -64,6 +64,7 @@ export default function AdminLogin() {
   const guardarSesionCompleta = async (data) => {
     localStorage.setItem('sfl_token', data.token);
     localStorage.setItem('sfl_user', JSON.stringify(data.usuario));
+    if (data.dispositivo_token) localStorage.setItem('sfl_dispositivo_token', data.dispositivo_token);
     await irADestinoFinal(data.usuario);
   };
 
@@ -97,7 +98,7 @@ export default function AdminLogin() {
     e.preventDefault();
     setError(''); setCargando(true);
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const { data } = await api.post('/auth/login', { email, password, dispositivo_token: localStorage.getItem('sfl_dispositivo_token') });
       await procesarRespuestaLogin(data);
     } catch (err) {
       setError(mensajeError(err, 'Correo o contraseña incorrectos.'));
@@ -109,7 +110,7 @@ export default function AdminLogin() {
   const omitirCambioClave = async () => {
     setError(''); setCargando(true);
     try {
-      const { data } = await api.post('/auth/posponer-cambio-clave');
+      const { data } = await api.post('/auth/posponer-cambio-clave', { dispositivo_token: localStorage.getItem('sfl_dispositivo_token') });
       await procesarRespuestaLogin(data);
     } catch (err) {
       setError(mensajeError(err));
@@ -125,7 +126,7 @@ export default function AdminLogin() {
     if (claveNueva.length < 6) { setError('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
     setCargando(true);
     try {
-      const { data } = await api.post('/auth/cambiar-clave-login', { clave_nueva: claveNueva });
+      const { data } = await api.post('/auth/cambiar-clave-login', { clave_nueva: claveNueva, dispositivo_token: localStorage.getItem('sfl_dispositivo_token') });
       setClaveNueva(''); setClaveNuevaConfirmar('');
       await procesarRespuestaLogin(data);
     } catch (err) {

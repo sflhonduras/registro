@@ -101,11 +101,11 @@ export default function AdminDiplomas() {
 
         <div className="flex gap-2">
           <Link to="/admin/diplomas/sin-requisitos"
-            className="rounded-full border border-gold/40 px-5 py-2 text-sm font-semibold text-gold hover:bg-gold/10">
+            className="rounded-full bg-[#9A6136] px-5 py-2 text-sm font-semibold text-parchment hover:bg-[#B57A4A]">
             📋 Participantes Sin Requisitos
           </Link>
           <button onClick={imprimir} disabled={!datos}
-            className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5 disabled:opacity-60">
+            className="rounded-full bg-ink px-5 py-2 text-sm font-semibold text-parchment hover:bg-ink/80 disabled:opacity-60">
             🖨️ Imprimir
           </button>
           <button onClick={() => descargar('excel')} disabled={descargando !== ''}
@@ -129,7 +129,7 @@ export default function AdminDiplomas() {
 
       <div className="mt-3 overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
+          <thead className="bg-gold text-xs font-semibold uppercase tracking-wide text-night">
             <tr>
               <th className="w-16 px-4 py-3">#</th>
               <th className="px-4 py-3">Nombre Completo</th>
@@ -139,7 +139,7 @@ export default function AdminDiplomas() {
           </thead>
           <tbody>
             {datos?.participantes.map((p, i) => (
-              <tr key={i} className="border-t border-ink/5">
+              <tr key={i} className={`border-t border-ink/5 hover:bg-gold/10 ${i % 2 === 1 ? 'bg-gold-pale/25' : 'bg-white'}`}>
                 <td className="px-4 py-2.5 text-ink/50">{i + 1}</td>
                 <td className="px-4 py-2.5 font-medium text-ink">{p.nombre_completo}</td>
                 <td className="px-4 py-2.5 text-ink/60">{p.capitulo || '—'}</td>

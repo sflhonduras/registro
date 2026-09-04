@@ -7,6 +7,7 @@ import { requireAuth, requireRole, requireModulo, requireSuperAdmin, requireEdit
 import { normalizarNombre } from '../texto.js';
 import { guardarEnPapelera, guardarParticipanteEnPapelera } from '../papelera.js';
 import { regenerarPin } from '../pinSeguridad.js';
+import { obtenerOCrearEnlaceEnVivo } from '../enlaceEnVivo.js';
 import {
   obtenerOCrearInforme, congelarInformesDeNivel, congelarTodosLosNoCongelados, obtenerInformePorToken
 } from '../informesCierre.js';
@@ -345,6 +346,17 @@ router.get('/evento-actual-resumen', async (req, res) => {
     evento.total_registrados_general = evento.total_registrados + evento.total_sin_requisitos;
   }
   res.json({ evento_actual: evento });
+});
+
+// GET /api/admin/enlace-en-vivo -> genera (o reutiliza si sigue vigente) el enlace público
+// de "registro en vivo" para el nivel que esté marcado como actual ahora mismo. Vence solo
+// a las 72 horas de haberse generado — si ya pasó ese tiempo, se genera uno nuevo.
+router.get('/enlace-en-vivo', requireModulo('estadisticas', 'consulta'), async (req, res) => {
+  const { rows } = await query('SELECT orden, ciclo_actual FROM eventos WHERE es_actual = TRUE');
+  const evento = rows[0];
+  if (!evento) return res.status(404).json({ error: 'Ningún nivel está marcado como actual todavía.' });
+  const enlace = await obtenerOCrearEnlaceEnVivo(evento.orden, evento.ciclo_actual);
+  res.json(enlace);
 });
 
 router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (req, res) => {

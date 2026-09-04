@@ -245,99 +245,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   );
 }
 
-function PanelExportarContacto() {
-  const [eventoActual, setEventoActual] = useState(null);
-  const [modo, setModo] = useState('ciclo'); // 'ciclo' | 'rango'
-  const [desde, setDesde] = useState('');
-  const [hasta, setHasta] = useState('');
-  const [descargando, setDescargando] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api.get('/admin/evento-actual-resumen').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
-  }, []);
-
-  const descargar = async () => {
-    setError('');
-    if (modo === 'rango' && (!desde || !hasta)) {
-      setError('Elige la fecha de inicio y fin del rango.');
-      return;
-    }
-    setDescargando(true);
-    try {
-      const params = new URLSearchParams();
-      if (modo === 'ciclo') params.set('ciclo_actual', 'true');
-      else { params.set('desde', desde); params.set('hasta', hasta); }
-
-      const resp = await fetch(`${api.defaults.baseURL}/admin/exportar-contacto/${eventoActual.orden}?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
-      });
-      if (!resp.ok) throw new Error();
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `contactos_nivel_${eventoActual.orden}.xlsx`; a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      setError('No se pudo generar el archivo.');
-    } finally {
-      setDescargando(false);
-    }
-  };
-
-  if (!eventoActual) {
-    return (
-      <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
-        <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
-        <p className="mt-1 text-sm text-ink/50">
-          Marca un nivel como "evento actual" desde <strong>Eventos</strong> para poder exportar su lista de contactos.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
-      <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
-      <p className="mt-1 text-sm text-ink/50">
-        Nombre completo, capítulo, teléfono, zona y cargo — de quienes se registraron al evento actual.
-      </p>
-
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <span className="rounded-full bg-gold px-4 py-2 text-sm font-bold text-night">
-          ⭐ {eventoActual.nombre}
-        </span>
-
-        <label className="text-sm">
-          <span className="mb-1 block text-ink/60">¿Qué registros?</span>
-          <select value={modo} onChange={e => setModo(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2">
-            <option value="ciclo">Solo el evento actual (ciclo en curso)</option>
-            <option value="rango">Elegir un rango de fechas</option>
-          </select>
-        </label>
-
-        {modo === 'rango' && (
-          <>
-            <label className="text-sm">
-              <span className="mb-1 block text-ink/60">Desde</span>
-              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2" />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-ink/60">Hasta</span>
-              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2" />
-            </label>
-          </>
-        )}
-
-        <button onClick={descargar} disabled={descargando}
-          className="rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light disabled:opacity-60">
-          {descargando ? 'Generando…' : '⬇ Descargar Excel'}
-        </button>
-      </div>
-      {error && <p className="mt-2 text-sm text-ember">{error}</p>}
-    </div>
-  );
-}
+// PanelExportarContacto se mudó a Reportería — ver AdminReportes.jsx
 
 // Abre la cámara del celular (directo en el navegador, sin instalar nada aparte) y lee un
 // código QR. Cuando detecta uno, solo avisa cuál DNI encontró — NO marca "Registrado"
@@ -401,6 +309,12 @@ export default function AdminParticipantes() {
   const [nivelParticipantes, setNivelParticipantes] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
   const [puedeMarcarPresencial, setPuedeMarcarPresencial] = useState(usuario?.rol === 'super_admin');
   const soloLectura = nivelParticipantes !== 'edicion';
+  const [toast, setToast] = useState(null); // { texto, tipo: 'registrado' | 'desmarcado' }
+
+  const mostrarToast = (texto, tipo) => {
+    setToast({ texto, tipo });
+    setTimeout(() => setToast(t => (t?.texto === texto ? null : t)), 2500);
+  };
 
   useEffect(() => {
     if (usuario?.rol === 'super_admin' || usuario?.rol === 'cocina') return;
@@ -579,6 +493,11 @@ function imprimirEtiqueta(nombreCompleto) {
     await api.put(`/admin/participantes/${p.id}/inscripciones/${eventoParaColumna}/presencial`, {
       registrado_presencial: nuevoValor
     });
+    mostrarToast(
+      nuevoValor ? `✓ ${p.nombre_completo} — Registrado` : `${p.nombre_completo} — Se desmarcó`,
+      nuevoValor ? 'registrado' : 'desmarcado'
+    );
+    window.dispatchEvent(new Event('sfl:refrescar-evento-actual'));
     if (nuevoValor && imprimirEtiquetaActivo) {
       imprimirEtiqueta(p.nombre_completo);
     }
@@ -587,61 +506,72 @@ function imprimirEtiqueta(nombreCompleto) {
 
   const totalPaginas = Math.max(Math.ceil(resultado.total / resultado.limite), 1);
 
+  // Los que ya se registraron van bajando al final de la lista — así los que todavía
+  // faltan por llegar se quedan siempre arriba, más fáciles de encontrar. Solo aplica
+  // cuando esa columna existe (pestaña "Inscribiéndose ahora"); en "Todos los
+  // participantes" se muestra en el orden normal, ya que ahí no hay esa columna.
+  const datosOrdenados = eventoParaColumna
+    ? [...resultado.datos].sort((a, b) => (a.registrado_presencial === b.registrado_presencial) ? 0 : a.registrado_presencial ? 1 : -1)
+    : resultado.datos;
+
   return (
     <div>
-      <div>
-        <h1 className="font-display text-2xl font-bold text-ink">Participantes</h1>
-        <p className="text-sm text-ink/50">
-          {pestana === 'actual' && eventoActual
-            ? `Inscritos en "${eventoActual.nombre}" (ciclo en curso)`
-            : `${resultado.total} registros en la base de datos`}
-        </p>
-      </div>
-
-      <div className="mt-4 flex gap-2 w-fit">
-        <button onClick={() => cambiarPestana('actual')}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'actual' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
-          ⭐ Inscribiéndose ahora
-        </button>
-        <button onClick={() => cambiarPestana('todos')}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'todos' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
-          Todos los participantes
-        </button>
-      </div>
-      {eventoParaColumna && (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-ink/40">
-            ✓ Marca "Registrado" cuando la persona llegue físicamente al evento. Si alguien no se presenta, elimínalo de la lista.
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-ink">Participantes</h1>
+          <p className="text-sm text-ink/50">
+            {pestana === 'actual' && eventoActual
+              ? `Inscritos en "${eventoActual.nombre}" (ciclo en curso)`
+              : `${resultado.total} registros en la base de datos`}
           </p>
-          <label className="flex items-center gap-2 text-xs font-medium text-ink/60">
-            <input
-              type="checkbox"
-              checked={imprimirEtiquetaActivo}
-              onChange={e => cambiarImprimirEtiqueta(e.target.checked)}
-              className="h-3.5 w-3.5 accent-gold"
-            />
-            🖨️ Imprimir etiqueta al marcar "Registrado"
-          </label>
         </div>
-      )}
 
-      <div className="mt-5">
-        <PanelExportarContacto />
+        <div className="flex items-center gap-3">
+          {eventoParaColumna && (
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-ink/60">
+              <input
+                type="checkbox"
+                checked={imprimirEtiquetaActivo}
+                onChange={e => cambiarImprimirEtiqueta(e.target.checked)}
+                className="h-3.5 w-3.5 accent-gold"
+              />
+              🖨️ Imprimir etiqueta
+            </label>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => cambiarPestana('actual')}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'actual' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
+              ⭐ Inscribiéndose ahora
+            </button>
+            <button onClick={() => cambiarPestana('todos')}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'todos' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
+              Todos los participantes
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            placeholder="Buscar por nombre, DNI o capítulo…"
-            value={buscar}
-            onChange={e => { setBuscar(e.target.value); setPagina(1); }}
-            className="w-full sm:w-80 rounded-lg border border-ink/15 px-3.5 py-2.5 text-sm"
-          />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:w-80">
+            <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/30">🔍</span>
+            <input
+              placeholder="Buscar por nombre, DNI o capítulo…"
+              value={buscar}
+              onChange={e => { setBuscar(e.target.value); setPagina(1); }}
+              className="w-full rounded-full border border-gold/30 bg-white py-2.5 pl-9 pr-3.5 text-sm shadow-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </div>
           {puedeMarcarPresencial && (
             <button type="button" onClick={() => setMostrarEscaner(true)}
-              className="rounded-lg border border-gold/40 bg-gold/10 px-3.5 py-2.5 text-sm font-semibold text-gold hover:bg-gold/20">
+              className="rounded-full bg-gold px-4 py-2.5 text-sm font-semibold text-night shadow-sm transition hover:bg-gold-light">
               📷 Escanear QR
             </button>
+          )}
+          {eventoParaColumna && (
+            <p className="text-xs text-ink/50">
+              ✓ Marca "Registrado" cuando la persona llegue físicamente. Si alguien no se presenta, elimínalo de la lista.
+            </p>
           )}
         </div>
         {pestana === 'todos' && (
@@ -654,37 +584,39 @@ function imprimirEtiqueta(nombreCompleto) {
       {avisoEscaneo && <p className="mt-2 rounded-lg bg-palm/10 p-2 text-sm text-palm">{avisoEscaneo}</p>}
 
       {pestana === 'actual' && !eventoActual && (
-        <p className="mt-5 rounded-lg bg-ember/10 p-4 text-sm text-ember">
+        <p className="mt-3 rounded-lg bg-ember/10 p-4 text-sm text-ember">
           Todavía no hay ningún nivel marcado como "evento actual". Ve a <strong>Eventos</strong> y márcalo.
         </p>
       )}
 
-      <div className="mt-5 overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-sm">
+      <div className="mt-3 overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-parchment-2 text-xs uppercase tracking-wide text-ink/50">
+          <thead className="bg-gold text-xs font-semibold uppercase tracking-wide text-night">
             <tr>
               <th className="px-4 py-3">Nombre</th>
-              <th className="px-4 py-3">DNI</th>
+              <th className="px-4 py-3 text-center">DNI</th>
               <th className="px-4 py-3">Capítulo</th>
-              <th className="px-4 py-3">Niveles</th>
-              {eventoParaColumna && <th className="px-4 py-3">Registrado</th>}
-              <th className="px-4 py-3 text-right">Acciones</th>
+              <th className="px-4 py-3 text-center">Niveles</th>
+              {eventoParaColumna && <th className="px-4 py-3 text-center">Registrado</th>}
+              <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {cargando && <tr><td colSpan={eventoParaColumna ? 6 : 5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
-            {!cargando && resultado.datos.map(p => (
-              <tr key={p.id} className="border-t border-ink/5 hover:bg-parchment-2/50">
+            {!cargando && datosOrdenados.map((p, i) => (
+              <tr key={p.id} className={`border-t border-ink/5 hover:bg-gold/10 ${
+                p.registrado_presencial ? 'bg-palm/10' : (i % 2 === 1 ? 'bg-gold-pale/25' : 'bg-white')
+              }`}>
                 <td className="px-4 py-3 font-medium text-ink">
                   {p.nombre_completo}
                   {p.fallecido && (
                     <span title="Q.E.P.D." className="ml-2 text-ink/40">✝</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-ink/60">{p.dni}</td>
+                <td className="px-4 py-3 text-center text-ink/60">{p.dni}</td>
                 <td className="px-4 py-3 text-ink/60">{p.capitulo || '—'}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-1">
+                <td className="px-4 py-3 text-center">
+                  <div className="flex justify-center gap-1">
                     {[1, 2, 3, 4].map(n => (
                       <span key={n} className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
                         (p.eventos_inscritos || []).includes(n) ? 'bg-palm/15 text-palm' : 'bg-ink/5 text-ink/30'
@@ -693,7 +625,7 @@ function imprimirEtiqueta(nombreCompleto) {
                   </div>
                 </td>
                 {eventoParaColumna && (
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-center">
                     <input
                       type="checkbox"
                       disabled={!puedeMarcarPresencial}
@@ -703,7 +635,7 @@ function imprimirEtiqueta(nombreCompleto) {
                     />
                   </td>
                 )}
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-center">
                   <button onClick={() => abrirDetalle(p)} className="text-gold hover:underline">{soloLectura ? 'Ver' : 'Editar'}</button>
                   {!soloLectura && (
                     <button onClick={() => eliminar(p)} className="ml-3 text-ember hover:underline">Eliminar</button>
@@ -737,6 +669,16 @@ function imprimirEtiqueta(nombreCompleto) {
 
       {mostrarEscaner && (
         <ModalEscanearQR onCerrar={() => setMostrarEscaner(false)} onDetectado={procesarEscaneo} />
+      )}
+
+      {toast && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
+          <div className={`pointer-events-auto rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-xl ${
+            toast.tipo === 'registrado' ? 'bg-palm' : 'bg-ink/80'
+          }`}>
+            {toast.texto}
+          </div>
+        </div>
       )}
     </div>
   );

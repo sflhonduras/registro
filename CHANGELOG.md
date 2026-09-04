@@ -1,5 +1,30 @@
 # Historial de versiones — Sistema SFL FIHNEC
 
+## v1.3.0 — 3 de septiembre de 2026
+- Panel administrativo: nuevo navbar fijo arriba (iniciales, nombre, rol, logo, menú de
+  engranaje con Vista horizontal/vertical, Sitio Principal y Olvidar Dispositivos
+  Confiables) — y una nueva vista horizontal (menú agrupado por categorías, se despliega al
+  pasar el mouse) como alternativa al sidebar clásico, elegible por cada usuario
+- 2FA: nuevo sistema de "dispositivo confiable" — ya no pide el código cada vez que entras
+  desde el mismo navegador, solo cada 7 días o si es un navegador nuevo; botón para "olvidar"
+  todos los dispositivos de golpe
+- Nuevo módulo: Registro en Vivo — enlace público (sin login, vence solo a las 72 horas) con
+  el conteo de participantes en tiempo real y el mapa de Honduras clicable, con desglose de
+  cargos en FIHNEC por departamento; accesible desde una tarjeta nueva en el Dashboard
+- Corregido bug real en "Exportar lista para llamadas": exportaba a todos los inscritos en
+  vez de solo a los registrados físicamente (misma población que Diplomas)
+- La tarjeta "Exportar lista para llamadas" se mudó de Participantes a Reportería
+- Participantes: la tabla ahora resalta a los ya registrados, los ordena al final de la
+  lista automáticamente, y muestra un mensaje de confirmación breve al marcar/desmarcar a
+  alguien
+- Diplomas, Participantes Sin Requisitos y las tarjetas de Estadísticas generales: color
+  consistente en botones, tablas y tarjetas en toda la paleta de marca
+- Eventos ahora es exclusivo del Súper Administrador (antes cualquier admin con el permiso
+  concedido podía entrar)
+- Corregido bug real de datos viejos: los números del panel (Inscritos/Registrados/Sin
+  Requisitos/TP) ahora se refrescan solos al navegar o al marcar/desmarcar a alguien, en vez
+  de quedarse con el dato de cuando entraste al panel
+
 ## v1.2.0 — 19 de agosto de 2026
 - Módulo de cumpleaños en el Portal del Servidor: pantalla de celebración de pantalla
   completa el día exacto, más 4 efectos ambientales sutiles durante todo el mes

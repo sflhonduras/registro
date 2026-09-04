@@ -4,6 +4,7 @@ import { normalizarNombre, soloDigitos } from '../texto.js';
 import { MUNICIPIOS_POR_DEPARTAMENTO } from '../municipios.js';
 import { obtenerInformePorToken } from '../informesCierre.js';
 import { generarInformePptx } from '../informePptx.js';
+import { calcularResumenEnVivo } from '../enlaceEnVivo.js';
 
 const router = Router();
 
@@ -333,6 +334,16 @@ router.get('/informe-publico/:token/pptx', async (req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
   res.setHeader('Content-Disposition', `attachment; filename="Informe_SFL_Nivel_${nivelRomano}.pptx"`);
   res.send(buffer);
+});
+
+// GET /api/registro-en-vivo/:token -> resumen en vivo completo (total, y los 18
+// departamentos con su desglose de cargos ya incluido). El token vence solo a las 72 horas
+// de haberse generado — pasado ese tiempo, esto devuelve 404 como si el enlace nunca hubiera
+// existido.
+router.get('/registro-en-vivo/:token', async (req, res) => {
+  const resumen = await calcularResumenEnVivo(req.params.token);
+  if (!resumen) return res.status(404).json({ error: 'Este enlace no existe o ya venció.' });
+  res.json(resumen);
 });
 
 export default router;

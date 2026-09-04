@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 import { signToken, signTokenTemporal, requireAuth, requireTokenPaso } from '../auth.js';
 import { registrarLogin } from '../auditoria.js';
-import { generarSecreto, generarQR, verificarCodigo } from '../twoFactor.js';
+import { generarSecreto, generarQR, verificarCodigo, generarTokenDispositivo, hashTokenDispositivo, DIAS_DISPOSITIVO_CONFIABLE } from '../twoFactor.js';
 
 const router = Router();
 
@@ -28,18 +28,39 @@ function debePreguntarCambioClave(user) {
 }
 
 // Una vez que ya se resolvió (o se saltó) la pregunta de cambio de contraseña, sigue el
-// flujo normal de siempre: 2FA si aplica, o sesión completa. Se comparte entre el login
-// normal y los dos endpoints nuevos (posponer / cambiar), para no duplicar esta lógica.
-async function continuarLogin(user, res) {
+// flujo normal de siempre: dispositivo confiable (se salta el código), 2FA si aplica, o
+// sesión completa. Se comparte entre el login normal y los dos endpoints nuevos (posponer /
+// cambiar), para no duplicar esta lógica.
+async function continuarLogin(user, req, res) {
   if (!requiere2FA(user)) {
     const token = signToken(user);
     await registrarLogin(user.id);
-    return res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+    return res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, two_factor_enabled: !!user.two_factor_enabled } });
   }
   if (!user.two_factor_enabled) {
     const tokenTemporal = signTokenTemporal(user, 'requiere_configurar_2fa');
     return res.json({ requiere_configurar_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
   }
+
+  // "Recordar este dispositivo": si el navegador ya mandó un token válido y sin vencer
+  // para este mismo usuario, nos saltamos el código de 2FA — la contraseña se sigue
+  // pidiendo siempre, solo se salta este paso. Se renueva la vigencia otros N días cada
+  // vez que se usa.
+  const tokenDispositivo = req.body?.dispositivo_token;
+  if (tokenDispositivo) {
+    const hash = hashTokenDispositivo(tokenDispositivo);
+    const { rows: dispositivo } = await query(
+      `UPDATE dispositivos_confiables SET expira_en = now() + ($3 * interval '1 day')
+       WHERE usuario_admin_id = $1 AND token_hash = $2 AND expira_en > now() RETURNING id`,
+      [user.id, hash, DIAS_DISPOSITIVO_CONFIABLE]
+    );
+    if (dispositivo[0]) {
+      const token = signToken(user);
+      await registrarLogin(user.id);
+      return res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, two_factor_enabled: true } });
+    }
+  }
+
   const tokenTemporal = signTokenTemporal(user, 'requiere_codigo_2fa');
   res.json({ requiere_codigo_2fa: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
 }
@@ -62,7 +83,7 @@ router.post('/login', async (req, res) => {
     return res.json({ requiere_cambio_clave: true, token: tokenTemporal, usuario: { nombre: user.nombre, email: user.email } });
   }
 
-  await continuarLogin(user, res);
+  await continuarLogin(user, req, res);
 });
 
 // POST /api/auth/posponer-cambio-clave -> el usuario eligió "Más tarde". Se pospone otros
@@ -74,7 +95,7 @@ router.post('/posponer-cambio-clave', requireTokenPaso('requiere_cambio_clave'),
   );
   const user = rows[0];
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
-  await continuarLogin(user, res);
+  await continuarLogin(user, req, res);
 });
 
 // POST /api/auth/cambiar-clave-login  body: { clave_nueva } -> el usuario decidió cambiarla
@@ -90,7 +111,7 @@ router.post('/cambiar-clave-login', requireTokenPaso('requiere_cambio_clave'), a
   );
   const user = rows[0];
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
-  await continuarLogin(user, res);
+  await continuarLogin(user, req, res);
 });
 
 // GET /api/auth/2fa/qr -> genera (o reutiliza) el secreto y devuelve el QR para escanear.
@@ -120,7 +141,15 @@ router.post('/2fa/confirmar-setup', requireTokenPaso('requiere_configurar_2fa'),
   await query('UPDATE usuarios_admin SET two_factor_enabled = TRUE WHERE id = $1', [user.id]);
   const token = signToken(user);
   await registrarLogin(user.id);
-  res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+
+  const tokenDispositivo = generarTokenDispositivo();
+  await query(
+    `INSERT INTO dispositivos_confiables (usuario_admin_id, token_hash, expira_en)
+     VALUES ($1, $2, now() + ($3 * interval '1 day'))`,
+    [user.id, hashTokenDispositivo(tokenDispositivo), DIAS_DISPOSITIVO_CONFIABLE]
+  );
+
+  res.json({ token, dispositivo_token: tokenDispositivo, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, two_factor_enabled: true } });
 });
 
 // POST /api/auth/2fa/verificar  body: { codigo } -> el paso normal en cada login posterior,
@@ -134,7 +163,24 @@ router.post('/2fa/verificar', requireTokenPaso('requiere_codigo_2fa'), async (re
   }
   const token = signToken(user);
   await registrarLogin(user.id);
-  res.json({ token, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol } });
+
+  const tokenDispositivo = generarTokenDispositivo();
+  await query(
+    `INSERT INTO dispositivos_confiables (usuario_admin_id, token_hash, expira_en)
+     VALUES ($1, $2, now() + ($3 * interval '1 day'))`,
+    [user.id, hashTokenDispositivo(tokenDispositivo), DIAS_DISPOSITIVO_CONFIABLE]
+  );
+
+  res.json({ token, dispositivo_token: tokenDispositivo, usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, two_factor_enabled: true } });
+});
+
+// DELETE /api/auth/2fa/dispositivos -> "Olvidar todos los dispositivos confiables" — borra
+// todos los que tenga guardados ESTE usuario (el de la sesión ya iniciada). Desde ese
+// momento, cualquier navegador (incluido el que se está usando ahora mismo) va a volver a
+// pedir el código 2FA en el siguiente login.
+router.delete('/2fa/dispositivos', requireAuth, async (req, res) => {
+  await query('DELETE FROM dispositivos_confiables WHERE usuario_admin_id = $1', [req.user.id]);
+  res.json({ mensaje: 'Se olvidaron todos los dispositivos confiables. La próxima vez que se inicie sesión, se pedirá el código 2FA de nuevo, en cualquier navegador.' });
 });
 
 router.get('/me', requireAuth, (req, res) => {

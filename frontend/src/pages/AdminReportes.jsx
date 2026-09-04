@@ -32,6 +32,129 @@ function formatearValorColumna(clave, valor) {
   return String(valor);
 }
 
+// Se mudó aquí desde Participantes — mismo componente, mismo comportamiento, tal cual.
+function PanelExportarContacto() {
+  const [eventoActual, setEventoActual] = useState(null);
+  const [modo, setModo] = useState('ciclo'); // 'ciclo' | 'rango'
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [descargando, setDescargando] = useState(false);
+  const [error, setError] = useState('');
+  const [modalSinRegistrados, setModalSinRegistrados] = useState(false);
+
+  useEffect(() => {
+    api.get('/admin/evento-actual-resumen').then(r => setEventoActual(r.data.evento_actual)).catch(() => {});
+  }, []);
+
+  const descargar = async () => {
+    setError('');
+    if (modo === 'rango' && (!desde || !hasta)) {
+      setError('Elige la fecha de inicio y fin del rango.');
+      return;
+    }
+    setDescargando(true);
+    try {
+      const params = new URLSearchParams();
+      if (modo === 'ciclo') params.set('ciclo_actual', 'true');
+      else { params.set('desde', desde); params.set('hasta', hasta); }
+
+      const resp = await fetch(`${api.defaults.baseURL}/admin/exportar-contacto/${eventoActual.orden}?${params}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
+      });
+      if (!resp.ok) {
+        // Cuando el backend contesta con "sin_registrados", no es un error real — solo
+        // significa que todavía nadie llegó físicamente en ese rango/ciclo.
+        const cuerpo = await resp.json().catch(() => null);
+        if (cuerpo?.error === 'sin_registrados') {
+          setModalSinRegistrados(true);
+          return;
+        }
+        throw new Error();
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `contactos_nivel_${eventoActual.orden}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No se pudo generar el archivo.');
+    } finally {
+      setDescargando(false);
+    }
+  };
+
+  if (!eventoActual) {
+    return (
+      <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
+        <p className="mt-1 text-sm text-ink/50">
+          Marca un nivel como "evento actual" desde <strong>Eventos</strong> para poder exportar su lista de contactos.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+      <p className="font-semibold text-ink">📞 Exportar lista para llamadas</p>
+      <p className="mt-1 text-sm text-ink/50">
+        Nombre completo, capítulo, teléfono, zona y cargo — solo de quienes ya se
+        <strong> registraron físicamente</strong> (asistencia confirmada), no de todos los
+        inscritos. Es la misma lista que ve Diplomas.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <span className="rounded-full bg-gold px-4 py-2 text-sm font-bold text-night">
+          ⭐ {eventoActual.nombre}
+        </span>
+
+        <label className="text-sm">
+          <span className="mb-1 block text-ink/60">¿Qué registros?</span>
+          <select value={modo} onChange={e => setModo(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2">
+            <option value="ciclo">Solo el evento actual (ciclo en curso)</option>
+            <option value="rango">Elegir un rango de fechas</option>
+          </select>
+        </label>
+
+        {modo === 'rango' && (
+          <>
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">Desde</span>
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2" />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">Hasta</span>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className="rounded-lg border border-ink/15 px-3 py-2" />
+            </label>
+          </>
+        )}
+
+        <button onClick={descargar} disabled={descargando}
+          className="rounded-full bg-palm px-5 py-2 text-sm font-semibold text-white hover:bg-palm-light disabled:opacity-60">
+          {descargando ? 'Generando…' : '⬇ Descargar Excel'}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-ember">{error}</p>}
+
+      {modalSinRegistrados && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
+            <p className="text-3xl">📭</p>
+            <p className="mt-2 font-display text-lg font-bold text-ink">Todavía no hay nadie registrado</p>
+            <p className="mt-1 text-sm text-ink/60">
+              Nadie se ha registrado físicamente en {modo === 'ciclo' ? 'el ciclo actual' : 'ese rango de fechas'} de este nivel — por eso no hay nada que exportar todavía.
+            </p>
+            <button onClick={() => setModalSinRegistrados(false)}
+              className="mt-5 w-full rounded-full bg-gold py-2.5 text-sm font-semibold text-night hover:bg-gold-light">
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminReportes() {
   const [parametrosUrl] = useSearchParams();
   const [camposDisponibles, setCamposDisponibles] = useState(null);
@@ -176,6 +299,10 @@ export default function AdminReportes() {
     <div>
       <h1 className="font-display text-2xl font-bold text-ink">Reportería</h1>
       <p className="text-sm text-ink/50">Arma el reporte que necesitas: elige el nivel, los filtros y las columnas, y descárgalo o imprímelo.</p>
+
+      <div className="mt-5">
+        <PanelExportarContacto />
+      </div>
 
       <div className="mt-5 space-y-5 rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
         {/* Filtros principales */}

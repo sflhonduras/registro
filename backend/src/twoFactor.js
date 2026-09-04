@@ -6,6 +6,23 @@
 // funciones sueltas) — versiones anteriores usaban un objeto "authenticator" que ya no existe.
 import { generateSecret, verify, generateURI } from 'otplib';
 import QRCode from 'qrcode';
+import crypto from 'crypto';
+
+// Cuántos días dura un dispositivo marcado como "confiable" antes de volver a pedir el
+// código 2FA — se renueva cada vez que se usa, así que solo expira por inactividad real.
+export const DIAS_DISPOSITIVO_CONFIABLE = 7;
+
+// Token de dispositivo: un valor aleatorio largo, sin relación con la contraseña ni el
+// secreto de 2FA — se guarda en el navegador (localStorage) y se manda junto con el login.
+export function generarTokenDispositivo() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Se guarda solo el hash en la base de datos (igual que una contraseña) — si algún día se
+// filtrara la base de datos, el token guardado no sirve para nada por sí solo.
+export function hashTokenDispositivo(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
 
 // Genera un secreto nuevo y único para un usuario — se guarda una sola vez en la base de
 // datos, la primera vez que activa 2FA.
