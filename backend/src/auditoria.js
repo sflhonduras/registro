@@ -24,16 +24,35 @@ export function resumirAccion(req) {
   return detalle ? `${accion} · ${detalle}` : accion;
 }
 
+// Si la ruta trae "/participantes/<id>/...", busca el nombre de esa persona para que
+// Auditoría lo muestre directo — así ya no hay que ir a Neon a traducir el ID a un nombre
+// cada vez. Si no encuentra nada (ID inválido, participante borrado, etc.) simplemente no
+// agrega nada, sin romper el registro de auditoría por eso.
+async function nombreDesdeRuta(ruta) {
+  const coincide = ruta.match(/\/participantes\/(\d+)/);
+  if (!coincide) return null;
+  try {
+    const { rows } = await query('SELECT nombre_completo, dni FROM participantes WHERE id = $1', [coincide[1]]);
+    if (!rows[0]) return null;
+    return rows[0].dni ? `${rows[0].nombre_completo} (${rows[0].dni})` : rows[0].nombre_completo;
+  } catch {
+    return null;
+  }
+}
+
 // Middleware global: registra cualquier POST/PUT/DELETE exitoso dentro de /api/admin.
 // Se engancha a res.on('finish') para leer req.user (lo llena requireAuth más abajo en la
-// cadena) y el código de estado real de la respuesta, sin bloquear ni retrasar la petición.
+// cadena) y el código de estado real de la respuesta, sin bloquear ni retrasar la petición
+// (el guardado en sí sigue pasando después de que la respuesta ya se le mandó al usuario).
 export function auditoriaMiddleware(req, res, next) {
   if (req.path.startsWith('/api/admin') && req.method !== 'GET' && !req.path.startsWith('/api/admin/auditoria')) {
-    res.on('finish', () => {
+    res.on('finish', async () => {
       if (res.statusCode >= 400 || !req.user) return;
+      const nombre = await nombreDesdeRuta(req.originalUrl);
+      const resumen = nombre ? `${resumirAccion(req)} — ${nombre}` : resumirAccion(req);
       query(
         `INSERT INTO auditoria (usuario_admin_id, tipo, metodo, ruta, resumen) VALUES ($1,'accion',$2,$3,$4)`,
-        [req.user.id, req.method, req.originalUrl, resumirAccion(req)]
+        [req.user.id, req.method, req.originalUrl, resumen]
       ).catch(e => console.error('No se pudo registrar auditoría:', e));
     });
   }

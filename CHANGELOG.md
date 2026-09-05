@@ -1,5 +1,10 @@
 # Historial de versiones — Sistema SFL FIHNEC
 
+## v1.4.0 — 4 de septiembre de 2026
+- Auditoría del panel: las acciones sobre un participante (marcar Registrado, editar,
+  eliminar, etc.) ahora muestran el nombre completo y el DNI de esa persona directo en el
+  detalle, en vez de solo su ID — ya no hace falta ir a Neon a traducir el ID a un nombre
+
 ## v1.3.1 — 4 de septiembre de 2026
 - Corregido bug real: "Exportar lista para llamadas" dejaba descargar el Excel en
   producción aunque nadie estuviera registrado físicamente — el navegador estaba
