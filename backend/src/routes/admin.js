@@ -875,6 +875,10 @@ router.get('/diplomas/:orden/pdf', requireModulo('diplomas', 'consulta'), async 
 // Descarga .xlsx con Nombre Completo, Capítulo, Teléfono, Zona, Cargo de quienes se
 // registraron a ese nivel, ya sea en el ciclo actual o en un rango de fechas elegido.
 router.get('/exportar-contacto/:orden', requireModulo('participantes', 'consulta'), async (req, res) => {
+  // Esta respuesta cambia todo el tiempo (según quién esté registrado en ese momento) —
+  // nunca debe quedar guardada en caché del navegador ni de ningún proxy en el camino.
+  res.set('Cache-Control', 'no-store');
+
   const orden = parseInt(req.params.orden, 10);
   const evRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evento = evRes.rows[0];

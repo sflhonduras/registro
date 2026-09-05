@@ -59,7 +59,8 @@ function PanelExportarContacto() {
       else { params.set('desde', desde); params.set('hasta', hasta); }
 
       const resp = await fetch(`${api.defaults.baseURL}/admin/exportar-contacto/${eventoActual.orden}?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` }
+        headers: { Authorization: `Bearer ${localStorage.getItem('sfl_token')}` },
+        cache: 'no-store'
       });
       if (!resp.ok) {
         // Cuando el backend contesta con "sin_registrados", no es un error real — solo

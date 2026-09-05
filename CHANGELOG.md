@@ -1,5 +1,12 @@
 # Historial de versiones — Sistema SFL FIHNEC
 
+## v1.3.1 — 4 de septiembre de 2026
+- Corregido bug real: "Exportar lista para llamadas" dejaba descargar el Excel en
+  producción aunque nadie estuviera registrado físicamente — el navegador estaba
+  reutilizando una respuesta vieja guardada en caché (Status 304) en vez de consultar al
+  servidor de nuevo. Se agregó "cache: no-store" en el frontend y el encabezado
+  "Cache-Control: no-store" en el backend, para que esta respuesta nunca quede guardada
+
 ## v1.3.0 — 3 de septiembre de 2026
 - Panel administrativo: nuevo navbar fijo arriba (iniciales, nombre, rol, logo, menú de
   engranaje con Vista horizontal/vertical, Sitio Principal y Olvidar Dispositivos
