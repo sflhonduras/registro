@@ -240,12 +240,12 @@ router.delete('/participantes/:id/inscripciones/:orden', requireModulo('particip
 
 /* ------------------------------- EVENTOS -------------------------------- */
 
-router.get('/eventos', requireModulo('eventos', 'consulta'), async (req, res) => {
+router.get('/eventos', requireSuperAdmin, async (req, res) => {
   const { rows } = await query('SELECT * FROM eventos ORDER BY orden');
   res.json(rows);
 });
 
-router.put('/eventos/:orden', requireModulo('eventos', 'edicion'), async (req, res) => {
+router.put('/eventos/:orden', requireSuperAdmin, async (req, res) => {
   const b = req.body || {};
   const campos = ['nombre', 'descripcion', 'fecha_evento', 'fecha_evento_fin', 'hora_evento', 'lugar', 'fecha_limite_registro', 'activo', 'cupo_maximo'];
   const cols = campos.filter(c => b[c] !== undefined);
@@ -264,7 +264,7 @@ router.put('/eventos/:orden', requireModulo('eventos', 'edicion'), async (req, r
 // POST /api/admin/eventos/:orden/nuevo-ciclo
 // Marca un nuevo ciclo/edición de este nivel. Las inscripciones anteriores quedan intactas
 // en el historial, pero dejan de contarse como "del evento actual" en estadísticas y diplomas.
-router.post('/eventos/:orden/nuevo-ciclo', requireModulo('eventos', 'edicion'), async (req, res) => {
+router.post('/eventos/:orden/nuevo-ciclo', requireSuperAdmin, async (req, res) => {
   // Si este nivel tenía un informe de cierre todavía "vivo" (sin congelar), este es el
   // momento en que su ciclo termina de verdad — se congela la foto fija ANTES de avanzar
   // el ciclo, con los datos tal como quedaron.
@@ -281,19 +281,24 @@ router.post('/eventos/:orden/nuevo-ciclo', requireModulo('eventos', 'edicion'), 
 // POST /api/admin/eventos/:orden/marcar-actual
 // Marca este nivel como "el evento actual" (el único que se muestra en el contador principal
 // del panel). Desmarca automáticamente cualquier otro nivel que lo tuviera antes.
-router.post('/eventos/:orden/marcar-actual', requireModulo('eventos', 'edicion'), async (req, res) => {
+router.post('/eventos/:orden/marcar-actual', requireSuperAdmin, async (req, res) => {
   // El nivel que va a dejar de ser "el actual" es el que se está cerrando ahora mismo —
   // se captura ANTES de tocar nada, para poder crear su informe con el ciclo correcto.
   const { rows: actualPrevio } = await query('SELECT * FROM eventos WHERE es_actual = TRUE');
 
-  // Este cambio de nivel actual es, por definición, "el evento siguiente" para cualquier
-  // informe de un cierre anterior que siguiera vivo — se congelan todos antes de crear el
-  // nuevo (así el nuevo no se congela a sí mismo por accidente).
-  await congelarTodosLosNoCongelados();
-
+  // IMPORTANTE: primero se CREA el informe del nivel que se cierra (si nunca se había
+  // generado antes, nace aquí mismo) — y SOLO DESPUÉS se congela todo lo que siga sin
+  // congelar. Si el orden fuera al revés, un nivel que nunca tuvo su informe generado
+  // mientras estaba activo se quedaría "vivo" para siempre, porque el barrido de
+  // congelamiento ya habría pasado antes de que su fila existiera.
   if (actualPrevio[0] && actualPrevio[0].orden !== parseInt(req.params.orden, 10)) {
     await obtenerOCrearInforme(actualPrevio[0].orden, actualPrevio[0].ciclo_actual);
   }
+
+  // Este cambio de nivel actual es, por definición, "el evento siguiente" para cualquier
+  // informe de un cierre anterior que siguiera vivo — se congelan todos ahora que el de
+  // arriba ya existe también.
+  await congelarTodosLosNoCongelados();
 
   await query('UPDATE eventos SET es_actual = FALSE');
   const { rows } = await query(
@@ -312,7 +317,7 @@ router.get('/informes/:token', async (req, res) => {
 });
 
 // POST /api/admin/promocion/avanzar -> avanza la promoción actual en +1 (ej. de V a VI)
-router.post('/promocion/avanzar', requireModulo('eventos', 'edicion'), async (req, res) => {
+router.post('/promocion/avanzar', requireSuperAdmin, async (req, res) => {
   const actual = await query("SELECT valor FROM configuracion WHERE clave = 'promocion_actual'");
   const nuevoValor = (parseInt(actual.rows[0]?.valor || '0', 10) + 1);
   await query(
@@ -329,6 +334,10 @@ router.post('/promocion/avanzar', requireModulo('eventos', 'edicion'), async (re
 // lateral (AdminLayout). A diferencia de /estadisticas, NO calcula zonas, departamentos,
 // mapa ni promociones — solo una consulta puntual, para que entrar al panel se sienta rápido.
 router.get('/evento-actual-resumen', async (req, res) => {
+  // Este es el que alimenta los números en vivo del navbar (Inscritos, Registrados, TP) —
+  // se pide cada 30 segundos y cada vez que cambias de pantalla; nunca debe quedar en caché.
+  res.set('Cache-Control', 'no-store');
+
   const { rows } = await query(`
     SELECT e.orden, e.nombre, e.ciclo_actual,
       COUNT(i.id) FILTER (WHERE i.ciclo = e.ciclo_actual)::int AS total_ciclo_actual,
@@ -360,6 +369,10 @@ router.get('/enlace-en-vivo', requireModulo('estadisticas', 'consulta'), async (
 });
 
 router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (req, res) => {
+  // Estos números cambian todo el tiempo (inscritos, registrados, qué informe es el más
+  // reciente) — nunca deben quedar guardados en caché del navegador ni de Cloudflare/Render.
+  res.set('Cache-Control', 'no-store');
+
   const [porEvento, porZona, porDepartamento, porCapitulo, porDia, porMunicipio, embudo, totalParticipantes, promocionRes, porPromocion, totalGraduadosNivel4, porDesercion, totalSinRequisitos, ultimoInformeRes] = await Promise.all([
     query(`
       SELECT e.orden, e.codigo, e.nombre, e.ciclo_actual, e.es_actual,
@@ -420,7 +433,7 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
     query(`
       SELECT ic.token, ic.congelado, ic.generado_en, ic.evento_orden, e.nombre AS evento_nombre
       FROM informes_cierre_nivel ic JOIN eventos e ON e.orden = ic.evento_orden
-      ORDER BY ic.generado_en DESC LIMIT 1`)
+      ORDER BY COALESCE(ic.congelado_en, ic.generado_en) DESC LIMIT 1`)
   ]);
 
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
