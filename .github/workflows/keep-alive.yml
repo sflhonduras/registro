@@ -13,8 +13,8 @@ name: Mantener el backend despierto (evento 3-7 septiembre, 6am-10pm Honduras)
 # correctamente la noche del 7 de septiembre (por la diferencia de horario entre Honduras y UTC,
 # que es lo que usa GitHub Actions para programar tareas).
 on:
-  schedule:
-    - cron: '*/14 12-23,0-3 3-8 9 *'
+  # schedule:
+  #   - cron: '*/14 12-23,0-3 3-8 9 *'
   workflow_dispatch:
 
 jobs:
