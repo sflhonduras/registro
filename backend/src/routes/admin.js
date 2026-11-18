@@ -55,6 +55,10 @@ router.get('/participantes', requireModulo('participantes', 'consulta'), async (
     params.push(`%${buscar}%`);
     where += ` AND (p.nombre_completo ILIKE $${params.length} OR p.dni ILIKE $${params.length} OR p.capitulo ILIKE $${params.length})`;
   }
+  for (const [filtro, columna] of [['tipo_participante', 'p.tipo_participante'], ['departamento', 'p.departamento'], ['zona', 'p.zona']]) {
+    const valor = String(req.query[filtro] || '').trim();
+    if (valor) { params.push(valor); where += ` AND ${columna} = $${params.length}`; }
+  }
   let joinEvento = '';
   let ordenPor = 'p.id ASC';
   let indiceParamEvento = null;
@@ -73,10 +77,21 @@ router.get('/participantes', requireModulo('participantes', 'consulta'), async (
     : 'NULL AS registrado_presencial';
   const paramsTotal = [...params];
   const paramsData = [...params, limite, offset];
+  // Conteo del evento en curso (sin búsqueda ni filtros): "N / M registrados" del encabezado.
+  let resumenEvento = {};
+  if (indiceParamEvento && soloCicloActual) {
+    const { rows: cnt } = await query(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE i.registrado_presencial)::int AS registrados
+       FROM inscripciones i JOIN eventos e ON e.id = i.evento_id
+       WHERE e.orden = $1 AND i.ciclo = e.ciclo_actual`,
+      [eventoOrden]
+    );
+    resumenEvento = { total_evento: cnt[0].total, registrados_evento: cnt[0].registrados };
+  }
   const [totalRes, dataRes] = await Promise.all([
     query(`SELECT COUNT(*)::int AS total FROM participantes p WHERE ${where} ${joinEvento}`, paramsTotal),
     query(
-      `SELECT p.*, ${campoPresencial},
+      `SELECT p.*, to_char(p.fecha_nacimiento, 'YYYY-MM-DD') AS fecha_nacimiento, ${campoPresencial},
          (SELECT array_agg(e.orden ORDER BY e.orden) FROM inscripciones i JOIN eventos e ON e.id = i.evento_id WHERE i.participante_id = p.id) AS eventos_inscritos
        FROM participantes p
        WHERE ${where} ${joinEvento}
@@ -87,7 +102,7 @@ router.get('/participantes', requireModulo('participantes', 'consulta'), async (
   ]);
 
   const datosSinPin = dataRes.rows.map(({ pin, ...resto }) => resto); // el PIN nunca viaja en el listado general
-  res.json({ total: totalRes.rows[0].total, pagina, limite, datos: datosSinPin });
+  res.json({ total: totalRes.rows[0].total, pagina, limite, datos: datosSinPin, ...resumenEvento });
 });
 
 router.get('/participantes/:id', requireModulo('participantes', 'consulta'), async (req, res) => {
@@ -131,7 +146,7 @@ const CAMPOS_PARTICIPANTE = [
   'nombre_completo', 'dni', 'celular', 'capitulo', 'zona', 'departamento', 'municipio',
   'cargo_fihnec', 'estado_civil', 'hijos_cantidad', 'comparte_testimonio', 'tiempo_comparte_testimonio',
   'ha_recibido_sael', 'cantidad_saeles', 'contacto_emergencia_nombre', 'contacto_emergencia_telefono',
-  'observacion'
+  'observacion', 'fecha_nacimiento'
 ];
 
 // POST /api/admin/participantes  (crear manualmente) - requiere edición en participantes
@@ -274,6 +289,10 @@ router.put('/participantes/:id', requireModulo('participantes', 'edicion'), asyn
   if (b.nombre_completo) b.nombre_completo = normalizarNombre(b.nombre_completo);
   if (b.contacto_emergencia_nombre) b.contacto_emergencia_nombre = normalizarNombre(b.contacto_emergencia_nombre);
   if (b.capitulo) b.capitulo = normalizarNombre(b.capitulo);
+  if (b.fecha_nacimiento !== undefined) {
+    if (!b.fecha_nacimiento) b.fecha_nacimiento = null;
+    else if (!validarFechaNacimiento(b.fecha_nacimiento)) return res.status(400).json({ error: 'La fecha de nacimiento no es válida.' });
+  }
   const cols = CAMPOS_PARTICIPANTE.filter(c => b[c] !== undefined);
   if (cols.length === 0) return res.status(400).json({ error: 'Nada para actualizar.' });
   const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
@@ -1055,6 +1074,174 @@ router.get('/diplomas/:orden/pdf', requireModulo('diplomas', 'consulta'), async 
     doc.moveDown(0.6);
   });
 
+  doc.end();
+});
+
+/* ---------------------- CUMPLEAÑEROS DEL EVENTO ---------------------- */
+
+// Quién cumple años entre el primer y el último día del evento (para cantarles las
+// mañanitas ahí). Solo cuenta a los inscritos del ciclo actual que tienen fecha de
+// nacimiento guardada. Agrupa por día del evento y ordena por nombre dentro de cada día.
+async function obtenerCumpleaneros(orden) {
+  const evRes = await query(
+    `SELECT id, codigo, nombre, ciclo_actual,
+            to_char(fecha_evento, 'YYYY-MM-DD') AS fecha_inicio,
+            to_char(COALESCE(fecha_evento_fin, fecha_evento), 'YYYY-MM-DD') AS fecha_fin
+     FROM eventos WHERE orden = $1`,
+    [orden]
+  );
+  const evento = evRes.rows[0];
+  if (!evento) return null;
+  if (!evento.fecha_inicio) return { evento, grupos: [], total: 0 };
+
+  const { rows } = await query(
+    `SELECT p.id AS participante_id, p.nombre_completo, p.tipo_participante, p.capitulo, p.zona,
+            p.departamento, p.municipio, to_char(p.fecha_nacimiento, 'YYYY-MM-DD') AS fecha_nacimiento
+     FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
+     WHERE i.evento_id = $1 AND i.ciclo = $2 AND p.fecha_nacimiento IS NOT NULL`,
+    [evento.id, evento.ciclo_actual]
+  );
+
+  // Días del evento en UTC puro, para que no se corra un día por zona horaria.
+  const [a1, m1, d1] = evento.fecha_inicio.split('-').map(Number);
+  const [a2, m2, d2] = evento.fecha_fin.split('-').map(Number);
+  const dias = [];
+  let actual = Date.UTC(a1, m1 - 1, d1);
+  const fin = Date.UTC(a2, m2 - 1, d2);
+  for (let n = 0; actual <= fin && n < 31; n += 1, actual += 86400000) dias.push(new Date(actual));
+
+  const grupos = [];
+  rows.forEach((r) => {
+    const [an, mn, dn] = r.fecha_nacimiento.split('-').map(Number);
+    const dia = dias.find((d) => d.getUTCMonth() + 1 === mn && d.getUTCDate() === dn);
+    if (!dia) return;
+    const clave = dia.toISOString().slice(0, 10);
+    let grupo = grupos.find((g) => g.clave === clave);
+    if (!grupo) { grupo = { clave, dia, items: [] }; grupos.push(grupo); }
+    grupo.items.push({ ...r, edad: dia.getUTCFullYear() - an });
+  });
+  grupos.sort((x, y) => x.dia - y.dia);
+  grupos.forEach((g) => g.items.sort((x, y) => x.nombre_completo.localeCompare(y.nombre_completo, 'es')));
+  return { evento, grupos, total: grupos.reduce((acc, g) => acc + g.items.length, 0) };
+}
+
+function textoDiaCumple(d) {
+  const t = d.toLocaleDateString('es-HN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// GET /api/admin/eventos/:orden/cumpleaneros -> lista agrupada por día (para la pestaña del panel)
+router.get('/eventos/:orden/cumpleaneros', requireModulo('participantes', 'consulta'), async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const datos = await obtenerCumpleaneros(parseInt(req.params.orden, 10));
+  if (!datos) return res.status(404).json({ error: 'Evento no encontrado.' });
+  res.json({
+    evento: { orden: parseInt(req.params.orden, 10), nombre: datos.evento.nombre, fecha_inicio: datos.evento.fecha_inicio, fecha_fin: datos.evento.fecha_fin },
+    total: datos.total,
+    grupos: datos.grupos.map(g => ({ clave: g.clave, titulo: textoDiaCumple(g.dia), items: g.items }))
+  });
+});
+
+// GET /api/admin/eventos/:orden/cumpleaneros/pdf -> PDF vertical con el mismo estilo que Diplomas
+router.get('/eventos/:orden/cumpleaneros/pdf', requireModulo('participantes', 'consulta'), async (req, res) => {
+  const datos = await obtenerCumpleaneros(parseInt(req.params.orden, 10));
+  if (!datos) return res.status(404).json({ error: 'Evento no encontrado.' });
+  const { evento, grupos, total } = datos;
+  const mayus = req.query.mayusculas === '1';
+  const t = (x) => (mayus ? String(x ?? '').toUpperCase() : String(x ?? ''));
+  const fechaDMA = (iso) => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}`; };
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="cumpleaneros_${evento.codigo}.pdf"`);
+  const doc = new PDFDocument({ size: 'letter', margin: 0, layout: 'portrait' });
+  doc.pipe(res);
+
+  const margenX = 40;
+  const ancho = doc.page.width;
+  const anchoCol = { num: 22, nombre: 150, edad: 45, capitulo: 85, zona: 70, procedencia: 118 };
+  const anchoTabla = Object.values(anchoCol).reduce((a, b) => a + b, 0);
+  const x0 = (ancho - anchoTabla) / 2;
+  const col = { num: x0 };
+  col.nombre = col.num + anchoCol.num;
+  col.edad = col.nombre + anchoCol.nombre;
+  col.capitulo = col.edad + anchoCol.edad;
+  col.zona = col.capitulo + anchoCol.capitulo;
+  col.procedencia = col.zona + anchoCol.zona;
+
+  const celda = (texto, x, y, w, align = 'center') => doc.text(texto, x, y, { width: w, align, ellipsis: true, lineBreak: false });
+  const celdaEnvuelta = (texto, x, y, w) => doc.text(texto, x, y, { width: w, align: 'left' });
+
+  function encabezadoPagina() {
+    doc.font('Helvetica-Bold').fillColor('#1F3464').fontSize(16).text(t('SFL · FIHNEC'), margenX, 18, { lineBreak: false });
+    doc.fontSize(10).fillColor('#9A6136').text(t(`Cumpleañeros — ${evento.nombre}`), margenX, 40, { lineBreak: false });
+    const w = 220;
+    const xT = ancho - margenX - w;
+    doc.fontSize(10).fillColor('#1F3464').text(`TOTAL CUMPLEAÑEROS: ${total}`, xT, 18, { width: w, align: 'right', lineBreak: false });
+    doc.fillColor('#9A6136').text(`DEL ${fechaDMA(evento.fecha_inicio)} AL ${fechaDMA(evento.fecha_fin)}`, xT, 34, { width: w, align: 'right', lineBreak: false });
+    doc.font('Helvetica');
+    doc.moveTo(0, 70).lineTo(ancho, 70).lineWidth(3).strokeColor('#1F3464').stroke();
+    doc.lineWidth(1);
+    doc.y = 90;
+  }
+  function encabezadosTabla() {
+    const y = doc.y;
+    doc.fontSize(8).fillColor('#000000');
+    celda('#', col.num, y, anchoCol.num);
+    celda('NOMBRE', col.nombre, y, anchoCol.nombre, 'left');
+    celda('CUMPLE', col.edad, y, anchoCol.edad);
+    celda('CAPÍTULO', col.capitulo, y, anchoCol.capitulo, 'left');
+    celda('ZONA', col.zona, y, anchoCol.zona, 'left');
+    celda('PROCEDENCIA', col.procedencia, y, anchoCol.procedencia, 'left');
+    doc.y = y + 16;
+    doc.moveTo(x0, doc.y).lineTo(x0 + anchoTabla, doc.y).strokeColor('#cccccc').stroke();
+    doc.y += 6;
+  }
+  function nuevaPagina() {
+    doc.addPage({ size: 'letter', margin: 0, layout: 'portrait' });
+    encabezadoPagina();
+    encabezadosTabla();
+  }
+
+  encabezadoPagina();
+  encabezadosTabla();
+  if (total === 0) {
+    doc.fontSize(9).fillColor('#666666')
+      .text('Nadie de los inscritos cumple años durante este evento.', x0, doc.y + 10, { width: anchoTabla, align: 'center' });
+  }
+
+  let numero = 0;
+  grupos.forEach((g) => {
+    if (doc.y + 40 > doc.page.height - 40) nuevaPagina();
+    const yDia = doc.y;
+    doc.rect(x0, yDia - 2, anchoTabla, 14).fill('#FDF2C4');
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#1F3464');
+    doc.text(t(`${textoDiaCumple(g.dia)} · ${g.items.length}`), x0 + 4, yDia + 1, { width: anchoTabla - 8, lineBreak: false });
+    doc.font('Helvetica');
+    doc.y = yDia + 18;
+
+    g.items.forEach((r) => {
+      numero += 1;
+      const procedencia = t(procedenciaDe(r.departamento, r.municipio));
+      const nombre = t(r.tipo_participante === 'menor' ? `${r.nombre_completo} (menor)` : r.nombre_completo);
+      doc.fontSize(7).fillColor('#000000');
+      const alto = Math.max(
+        doc.heightOfString(nombre, { width: anchoCol.nombre }),
+        doc.heightOfString(t(r.capitulo), { width: anchoCol.capitulo }),
+        doc.heightOfString(t(r.zona), { width: anchoCol.zona }),
+        doc.heightOfString(procedencia, { width: anchoCol.procedencia }),
+        10
+      ) + 6;
+      if (doc.y + alto > doc.page.height - 40) { nuevaPagina(); doc.fontSize(7).fillColor('#000000'); }
+      const y = doc.y;
+      celda(String(numero), col.num, y, anchoCol.num);
+      celdaEnvuelta(nombre, col.nombre, y, anchoCol.nombre);
+      celda(`${r.edad} años`, col.edad, y, anchoCol.edad);
+      celdaEnvuelta(t(r.capitulo), col.capitulo, y, anchoCol.capitulo);
+      celdaEnvuelta(t(r.zona), col.zona, y, anchoCol.zona);
+      celdaEnvuelta(procedencia, col.procedencia, y, anchoCol.procedencia);
+      doc.y = y + alto;
+    });
+  });
   doc.end();
 });
 

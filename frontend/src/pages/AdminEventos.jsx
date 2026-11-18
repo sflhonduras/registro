@@ -145,10 +145,14 @@ export default function AdminEventos() {
                   )
                 )}
               </div>
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input type="checkbox" disabled={soloLectura} checked={ev.activo} onChange={e => actualizarCampo(ev.id, 'activo', e.target.checked)} />
-                {ev.activo ? <span className="text-palm">Registro habilitado</span> : <span className="text-ember">Registro bloqueado</span>}
-              </label>
+              <button type="button" role="switch" aria-checked={!!ev.activo} disabled={soloLectura}
+                onClick={() => actualizarCampo(ev.id, 'activo', !ev.activo)}
+                className="flex items-center gap-2 text-sm font-semibold disabled:opacity-60">
+                <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${ev.activo ? 'bg-palm' : 'bg-ember'}`}>
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${ev.activo ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </span>
+                {ev.activo ? <span className="text-palm">Registro abierto</span> : <span className="text-ember">Registro cerrado</span>}
+              </button>
             </div>
 
             <div className="mt-5 rounded-xl bg-parchment-2 p-4">

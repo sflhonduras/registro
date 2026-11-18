@@ -1,5 +1,26 @@
 # Historial de versiones — Sistema SFL FIHNEC
 
+## v1.8.0 — 18 de noviembre de 2026
+- Formulario público de inscripción al Nivel I rediseñado como asistente de 6 pasos (identificación,
+  datos personales, ubicación, datos FIHNEC, contacto de emergencia y revisión), con barra de progreso,
+  selector Hondureño/Extranjero y los mismos campos de siempre
+- Participantes: nuevo diseño (pestañas de colores, buscador con botones Buscar/Limpiar, tarjeta del
+  evento actual con "N / M registrados", botones Editar y Eliminar)
+- Participantes: nueva pestaña "🎂 Cumpleañeros" con quienes cumplen años durante el evento actual,
+  agrupados por día, con PDF para descargar o imprimir (opción en MAYÚSCULAS)
+- Nueva fecha de nacimiento del participante: se pide en el formulario público del Nivel I y se
+  puede editar en el panel (Cumpleañeros solo incluye a quienes la tienen guardada)
+- Participantes: filtros por tipo (Nacional, Menor, Extranjero) y por departamento; la columna de
+  identificación indica el tipo (DNI, Pasaporte, Código interno); mensaje de confirmación al eliminar
+- Dashboard rediseñado y más compacto: franja oscura con Promoción actual, Total graduados, Sin requisitos,
+  Informe de cierre y Registro en vivo (al final); cifras de niveles en una sola fila; Menores y Extranjeros
+  juntos; graduados por promoción en barras (últimas 10) con selector "Otra promoción" y buscador
+- Eventos: el registro se abre y cierra con un interruptor claro ("Registro abierto" / "Registro cerrado")
+- Formularios: el orden ahora es Departamento, Municipio y Zona (se habilitan en cadena); botón
+  "Cancelar inscripción" en el formulario público
+- Corregido: el código interno de menores (MEN-00002) se reconoce en la Autoconsulta y en los
+  formularios (se perdía el guion)
+
 ## v1.7.0 — 18 de noviembre de 2026
 - Participantes: ahora se pueden registrar menores de edad (sin DNI obligatorio; se les asigna un
   código interno MEN-00001, con fecha de nacimiento y responsable) y extranjeros (identificados

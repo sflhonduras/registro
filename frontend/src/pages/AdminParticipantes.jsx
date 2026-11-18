@@ -1,15 +1,37 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { mensajeError } from '../api';
+import PanelCumpleaneros from '../components/PanelCumpleaneros';
+import SelectorFecha from '../components/SelectorFecha';
 import ModalParticipanteEspecial from '../components/ModalParticipanteEspecial';
 import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
 import { DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, zonasDeDepartamento, zonaValidaPara, procedenciaDe } from '../listas';
 
 const CAMPOS = [
-  ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['celular', 'Celular'],
-  ['capitulo', 'Capítulo'], ['zona', 'Zona'], ['departamento', 'Departamento'], ['municipio', 'Municipio'],
+  ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['fecha_nacimiento', 'Fecha de nacimiento'], ['celular', 'Celular'],
+  ['capitulo', 'Capítulo'], ['departamento', 'Departamento'], ['municipio', 'Municipio'], ['zona', 'Zona'],
   ['cargo_fihnec', 'Cargo en FIHNEC'], ['estado_civil', 'Estado civil'], ['hijos_cantidad', 'Hijos'],
   ['observacion', 'Observación']
 ];
+
+const COLORES_TAB = {
+  celeste: { on: 'bg-night-2 text-white border border-night-2', off: 'border border-night-2/40 bg-night-2/10 text-night-2 hover:bg-night-2/20' },
+  azul: { on: 'bg-night text-white border border-night', off: 'border border-night/40 bg-night/10 text-night hover:bg-night/20' },
+  oro: { on: 'bg-gold text-night border border-gold', off: 'border border-gold bg-gold/25 text-night hover:bg-gold/45' },
+};
+function claseTab(activa, color = 'azul') {
+  return `rounded-full px-4 py-2 text-sm font-semibold transition ${COLORES_TAB[color][activa ? 'on' : 'off']}`;
+}
+// Botones de acción en filas de tabla: editar/ver = verde o neutro, eliminar = rojo.
+const btnVer = 'rounded-full border border-ink/20 px-3 py-1 text-xs font-semibold text-ink/70 hover:bg-ink/5';
+const btnEditar = 'rounded-full bg-[#007334] px-3 py-1 text-xs font-semibold text-white hover:bg-[#005c29]';
+const btnEliminar = 'rounded-full bg-ember px-3 py-1 text-xs font-semibold text-white hover:bg-ember-light';
+const btnVerde = 'rounded-full bg-[#007334] px-5 py-2 text-sm font-semibold text-white hover:bg-[#005c29]';
+const claseFiltro = 'rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm';
+
+// Muestra siempre el tipo y el número: "DNI: …", "Pasaporte: …" o "Código interno: …".
+function textoIdentificacion(tipo, numero) {
+  return tipo ? `${tipo}: ${numero}` : numero;
+}
 
 function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   const confirmar = useConfirmar();
@@ -123,17 +145,27 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                 ? { ...f, departamento: valor, municipio: '', zona: zonaValidaPara(valor, f.zona) }
                 : { ...f, [campo]: valor }
             ));
+            if (campo === 'fecha_nacimiento') {
+              return (
+                <div key={campo} className="block text-sm">
+                  <span className="mb-1 block text-ink/60">{etiqueta}</span>
+                  {soloLectura
+                    ? <p className="rounded-lg border border-ink/15 bg-ink/5 px-3 py-2">{form.fecha_nacimiento ? form.fecha_nacimiento.slice(0, 10).split('-').reverse().join('/') : '—'}</p>
+                    : <SelectorFecha value={(form.fecha_nacimiento || '').slice(0, 10)} onChange={v => setForm(f => ({ ...f, fecha_nacimiento: v }))} />}
+                </div>
+              );
+            }
             return (
               <label key={campo} className="block text-sm">
                 <span className="mb-1 block text-ink/60">{etiqueta}</span>
                 {opciones ? (
                   <select
-                    disabled={soloLectura}
+                    disabled={soloLectura || ((campo === 'municipio' || campo === 'zona') && !form.departamento)}
                     className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
                     value={form[campo] ?? ''}
                     onChange={e => cambiar(e.target.value)}
                   >
-                    <option value="">— Seleccionar —</option>
+                    <option value="">{(campo === 'municipio' || campo === 'zona') && !form.departamento ? 'Primero elige un departamento' : '— Seleccionar —'}</option>
                     {opciones.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 ) : (
@@ -395,6 +427,8 @@ export default function AdminParticipantes() {
     setTimeout(() => setAvisoEscaneo(''), 6000);
   };
   const [filtroEvento, setFiltroEvento] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroDepto, setFiltroDepto] = useState('');
   const [pagina, setPagina] = useState(1);
   const [resultado, setResultado] = useState({ datos: [], total: 0, limite: 50 });
   const [seleccionado, setSeleccionado] = useState(null);
@@ -405,18 +439,19 @@ export default function AdminParticipantes() {
   }, []);
 
   const cargar = useCallback(() => {
+    if (pestana === 'cumple') return;
     setCargando(true);
     if (pestana === 'actual') {
       if (!eventoActual) { setCargando(false); return; }
-      api.get('/admin/participantes', { params: { buscar, pagina, evento: eventoActual.orden, solo_ciclo_actual: true } })
+      api.get('/admin/participantes', { params: { buscar, pagina, evento: eventoActual.orden, solo_ciclo_actual: true, tipo_participante: filtroTipo || undefined, departamento: filtroDepto || undefined } })
         .then(r => setResultado(r.data))
         .finally(() => setCargando(false));
     } else {
-      api.get('/admin/participantes', { params: { buscar, pagina, evento: filtroEvento || undefined } })
+      api.get('/admin/participantes', { params: { buscar, pagina, evento: filtroEvento || undefined, tipo_participante: filtroTipo || undefined, departamento: filtroDepto || undefined } })
         .then(r => setResultado(r.data))
         .finally(() => setCargando(false));
     }
-  }, [buscar, pagina, filtroEvento, pestana, eventoActual]);
+  }, [buscar, pagina, filtroEvento, filtroTipo, filtroDepto, pestana, eventoActual]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -428,11 +463,17 @@ export default function AdminParticipantes() {
       // El participante y su historial en otros niveles quedan intactos.
       if (!eventoActual) return;
       if (!(await confirmar({ titulo: 'Quitar del ciclo en curso', mensaje: `¿Quitar a ${p.nombre_completo} de "${eventoActual.nombre}" (ciclo en curso)? Su historial en otros niveles no se toca. Esta acción no se puede deshacer.`, textoConfirmar: 'Sí, quitar', peligro: true }))) return;
-      await api.delete(`/admin/participantes/${p.id}/inscripciones/${eventoActual.orden}`);
+      try {
+        await api.delete(`/admin/participantes/${p.id}/inscripciones/${eventoActual.orden}`);
+        mostrarToast(`${p.nombre_completo} fue quitado del ciclo en curso.`, 'desmarcado');
+      } catch (err) { mostrarToast(mensajeError(err), 'desmarcado'); }
     } else {
       // Aquí sí se borra al participante por completo, con todo su historial.
       if (!(await confirmar({ titulo: 'Eliminar participante', mensaje: `¿Eliminar a ${p.nombre_completo} de la base de datos por completo, incluyendo todo su historial en los 4 niveles? Esta acción no se puede deshacer.`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
-      await api.delete(`/admin/participantes/${p.id}`);
+      try {
+        await api.delete(`/admin/participantes/${p.id}`);
+        mostrarToast(`${p.nombre_completo} fue eliminado.`, 'registrado');
+      } catch (err) { mostrarToast(mensajeError(err), 'desmarcado'); }
     }
     cargar();
   };
@@ -560,85 +601,111 @@ function imprimirEtiqueta(nombreCompleto) {
     ? [...resultado.datos].sort((a, b) => (a.registrado_presencial === b.registrado_presencial) ? 0 : a.registrado_presencial ? 1 : -1)
     : resultado.datos;
 
+  const registradosEvento = resultado.registrados_evento ?? 0;
+  const totalEvento = resultado.total_evento ?? resultado.total;
+
   return (
     <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-ink">Participantes</h1>
-          <p className="text-sm text-ink/50">
-            {pestana === 'actual' && eventoActual
-              ? `Inscritos en "${eventoActual.nombre}" (ciclo en curso)`
-              : `${resultado.total} registros en la base de datos`}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {eventoParaColumna && (
-            <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-ink/60">
-              <input
-                type="checkbox"
-                checked={imprimirEtiquetaActivo}
-                onChange={e => cambiarImprimirEtiqueta(e.target.checked)}
-                className="h-3.5 w-3.5 accent-gold"
-              />
-              🖨️ Imprimir etiqueta
-            </label>
-          )}
-          <div className="flex gap-2">
-            <button onClick={() => cambiarPestana('actual')}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'actual' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
-              ⭐ Inscribiéndose ahora
-            </button>
-            <button onClick={() => cambiarPestana('todos')}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pestana === 'todos' ? 'bg-ink text-parchment' : 'bg-white text-ink/70 border border-ink/15 shadow-sm hover:bg-ink/5'}`}>
-              Todos los participantes
-            </button>
-          </div>
-        </div>
+      <div>
+        <h1 className="font-display text-2xl font-bold text-ink">Participantes</h1>
+        <p className="text-sm text-ink/50">
+          {pestana === 'cumple' ? 'Quién cumple años durante el evento actual'
+            : pestana === 'actual' && eventoActual
+            ? `Inscritos en "${eventoActual.nombre}" (ciclo en curso)`
+            : `${resultado.total} registros en la base de datos`}
+        </p>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/30">🔍</span>
-            <input
-              placeholder="Buscar por nombre, DNI o capítulo…"
-              value={buscar}
-              onChange={e => { setBuscar(e.target.value); setPagina(1); }}
-              className="w-full rounded-full border border-gold/30 bg-white py-2.5 pl-9 pr-3.5 text-sm shadow-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
-            />
-          </div>
-          {puedeMarcarPresencial && (
-            <button type="button" onClick={() => setMostrarEscaner(true)}
-              className="rounded-full bg-gold px-4 py-2.5 text-sm font-semibold text-night shadow-sm transition hover:bg-gold-light">
-              📷 Escanear QR
-            </button>
-          )}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => cambiarPestana('actual')} className={claseTab(pestana === 'actual', 'celeste')}>★ Inscribiéndose ahora</button>
+          <button onClick={() => cambiarPestana('todos')} className={claseTab(pestana === 'todos', 'azul')}>Todos los participantes</button>
+          <button onClick={() => cambiarPestana('cumple')} className={claseTab(pestana === 'cumple', 'oro')}>🎂 Cumpleañeros</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
           {!soloLectura && (
             <>
-              <button type="button" onClick={() => setNuevoEspecial('menor')}
-                className="rounded-full border border-gold/40 bg-white px-4 py-2.5 text-sm font-semibold text-gold shadow-sm transition hover:bg-gold/10">
-                + Agregar menor
-              </button>
-              <button type="button" onClick={() => setNuevoEspecial('extranjero')}
-                className="rounded-full border border-gold/40 bg-white px-4 py-2.5 text-sm font-semibold text-gold shadow-sm transition hover:bg-gold/10">
-                🌎 Agregar extranjero
-              </button>
+              <button type="button" onClick={() => setNuevoEspecial('menor')} className={btnVerde}>+ Agregar menor</button>
+              <button type="button" onClick={() => setNuevoEspecial('extranjero')} className={btnVerde}>+ Agregar extranjero</button>
             </>
           )}
-          {eventoParaColumna && (
-            <p className="text-xs text-ink/50">
-              ✓ Marca "Registrado" cuando la persona llegue físicamente. Si alguien no se presenta, elimínalo de la lista.
-            </p>
+          {pestana !== 'cumple' && (
+            <button type="button" onClick={cargar} title="Refrescar la lista"
+              className="rounded-full border border-ember-light/50 bg-ember-light/15 px-4 py-2 text-sm font-semibold text-ember hover:bg-ember-light/30">
+              ↻ Refrescar
+            </button>
           )}
         </div>
-        {pestana === 'todos' && (
-          <select value={filtroEvento} onChange={e => { setFiltroEvento(e.target.value); setPagina(1); }} className="rounded-lg border border-ink/15 px-3 py-2 text-sm">
-            <option value="">Todos los niveles</option>
-            {[1, 2, 3, 4].map(n => <option key={n} value={n}>Inscritos en Nivel {n}</option>)}
-          </select>
-        )}
       </div>
+
+      {pestana !== 'cumple' && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-ink/10 bg-white px-4 py-3 shadow-sm">
+          <div className="flex min-w-[260px] flex-1 flex-col gap-2">
+            <form onSubmit={e => { e.preventDefault(); cargar(); }} className="flex flex-wrap items-center gap-2">
+              <input
+                placeholder="Buscar por nombre, identificación o capítulo"
+                value={buscar}
+                onChange={e => { setBuscar(e.target.value); setPagina(1); }}
+                className="min-w-[180px] flex-1 rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm outline-none focus:border-ember focus:ring-4 focus:ring-ember/10"
+              />
+              <button type="submit" className={btnVerde}>Buscar</button>
+              <button type="button"
+                onClick={() => { setBuscar(''); setFiltroTipo(''); setFiltroDepto(''); setFiltroEvento(''); setPagina(1); }}
+                className="rounded-full border border-night-2/40 bg-night-2/10 px-4 py-2 text-sm font-semibold text-night hover:bg-night-2/20">
+                Limpiar
+              </button>
+            </form>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={filtroTipo} onChange={e => { setFiltroTipo(e.target.value); setPagina(1); }} className={claseFiltro}>
+                <option value="">Todos los tipos</option>
+                <option value="nacional">Nacionales</option>
+                <option value="menor">Menores</option>
+                <option value="extranjero">Extranjeros</option>
+              </select>
+              <select value={filtroDepto} onChange={e => { setFiltroDepto(e.target.value); setPagina(1); }} className={claseFiltro}>
+                <option value="">Todos los departamentos</option>
+                {DEPARTAMENTOS_HONDURAS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              {pestana === 'todos' && (
+                <select value={filtroEvento} onChange={e => { setFiltroEvento(e.target.value); setPagina(1); }} className={claseFiltro}>
+                  <option value="">Todos los niveles</option>
+                  {[1, 2, 3, 4].map(n => <option key={n} value={n}>Inscritos en Nivel {n}</option>)}
+                </select>
+              )}
+              {puedeMarcarPresencial && (
+                <button type="button" onClick={() => setMostrarEscaner(true)}
+                  className="rounded-full bg-gold px-4 py-2 text-sm font-semibold text-night shadow-sm transition hover:bg-gold-light">
+                  📷 Escanear QR
+                </button>
+              )}
+              {eventoParaColumna && (
+                <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-ink/60">
+                  <input type="checkbox" checked={imprimirEtiquetaActivo} onChange={e => cambiarImprimirEtiqueta(e.target.checked)} className="h-3.5 w-3.5 accent-gold" />
+                  🖨️ Imprimir etiqueta
+                </label>
+              )}
+            </div>
+          </div>
+
+          {pestana === 'actual' && eventoActual && (
+            <div className="flex min-w-[300px] items-center justify-between gap-5 rounded-xl bg-night px-6 py-2.5 text-white">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-white/60">Evento actual</p>
+                <p className="font-display text-base font-bold leading-tight">{eventoActual.nombre}</p>
+              </div>
+              <p className="border-l border-white/20 pl-3 text-sm">
+                <span className="font-display text-xl font-bold">{registradosEvento}</span>
+                <span className="text-white/60"> / {totalEvento} registrados</span>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+      {eventoParaColumna && pestana !== 'cumple' && (
+        <p className="mt-2 text-xs text-ink/50">
+          ✓ Marca "Registrado" cuando la persona llegue físicamente. Si alguien no se presenta, elimínalo de la lista.
+        </p>
+      )}
       {avisoEscaneo && <p className="mt-2 rounded-lg bg-palm/10 p-2 text-sm text-palm">{avisoEscaneo}</p>}
 
       {pestana === 'actual' && !eventoActual && (
@@ -647,12 +714,15 @@ function imprimirEtiqueta(nombreCompleto) {
         </p>
       )}
 
+      {pestana === 'cumple' && <PanelCumpleaneros eventoActual={eventoActual} />}
+
+      {pestana !== 'cumple' && (<>
       <div className="mt-3 overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-gold text-xs font-semibold uppercase tracking-wide text-night">
+          <thead className="border-b border-ink/10 bg-[#1F3464]/12 text-xs font-semibold uppercase tracking-wide text-[#1F3464]">
             <tr>
               <th className="px-4 py-3">Nombre</th>
-              <th className="px-4 py-3 text-center">DNI</th>
+              <th className="px-4 py-3">Identificación</th>
               <th className="px-4 py-3">Capítulo</th>
               <th className="px-4 py-3">Procedencia</th>
               <th className="px-4 py-3 text-center">Niveles</th>
@@ -678,7 +748,7 @@ function imprimirEtiqueta(nombreCompleto) {
                     <span title="Q.E.P.D." className="ml-2 text-ink/40">✝</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center text-ink/60">{p.dni}</td>
+                <td className="px-4 py-3 text-ink/60">{textoIdentificacion(p.tipo_identificacion, p.dni)}</td>
                 <td className="px-4 py-3 text-ink/60">{p.capitulo || '—'}</td>
                 <td className="px-4 py-3 text-ink/60">{procedenciaDe(p.departamento, p.municipio) || '—'}</td>
                 <td className="px-4 py-3 text-center">
@@ -702,9 +772,9 @@ function imprimirEtiqueta(nombreCompleto) {
                   </td>
                 )}
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => abrirDetalle(p)} className="text-gold hover:underline">{soloLectura ? 'Ver' : 'Editar'}</button>
+                  <button onClick={() => abrirDetalle(p)} className={soloLectura ? btnVer : btnEditar}>{soloLectura ? 'Ver detalle' : 'Editar'}</button>
                   {!soloLectura && (
-                    <button onClick={() => eliminar(p)} className="ml-3 text-ember hover:underline">Eliminar</button>
+                    <button onClick={() => eliminar(p)} className={`ml-2 ${btnEliminar}`}>Eliminar</button>
                   )}
                 </td>
               </tr>
@@ -723,6 +793,7 @@ function imprimirEtiqueta(nombreCompleto) {
           <button disabled={pagina >= totalPaginas} onClick={() => setPagina(p => p + 1)} className="rounded-lg border border-ink/15 px-3 py-1 disabled:opacity-40">Siguiente</button>
         </div>
       </div>
+      </>)}
 
       {seleccionado && (
         <ModalEditar

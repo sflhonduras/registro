@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
-import { esPasaporte, normalizarIdentificacion, validarPasaporte, validarDniHn } from '../identificacion.js';
+import { esPasaporte, normalizarIdentificacion, validarPasaporte, validarDniHn, validarFechaNacimiento } from '../identificacion.js';
 import { MUNICIPIOS_POR_DEPARTAMENTO } from '../municipios.js';
 import { obtenerInformePorToken } from '../informesCierre.js';
 import { generarInformePptx } from '../informePptx.js';
@@ -87,6 +87,7 @@ function validarDatosEvento1(b) {
   } else if (!validarDniHn(identificacion)) {
     return 'El número de identidad (DNI) debe tener 13 dígitos.';
   }
+  if (!validarFechaNacimiento(b.fecha_nacimiento)) return 'La fecha de nacimiento es obligatoria y debe ser válida.';
   const municipiosDelDepartamento = MUNICIPIOS_POR_DEPARTAMENTO[b.departamento];
   if (!municipiosDelDepartamento) return 'El departamento indicado no es válido.';
   if (!municipiosDelDepartamento.includes(b.municipio)) {
@@ -129,7 +130,7 @@ router.get('/eventos/:orden/estado', async (req, res) => {
 // para preguntarle si quiere actualizar sus datos antes de (re)inscribirlo al Nivel I.
 router.get('/evento1/verificar/:dni', async (req, res) => {
   const dni = normalizarIdentificacion(req.params.dni);
-  const partRes = await query('SELECT * FROM participantes WHERE dni = $1', [dni]);
+  const partRes = await query("SELECT *, to_char(fecha_nacimiento, 'YYYY-MM-DD') AS fecha_nacimiento FROM participantes WHERE dni = $1", [dni]);
   const participante = partRes.rows[0];
   if (!participante) return res.json({ existe: false });
 
@@ -182,8 +183,8 @@ router.post('/registro/evento1', async (req, res) => {
         (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec,
          estado_civil, hijos_cantidad, comparte_testimonio, tiempo_comparte_testimonio,
          ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion, pin,
-         tipo_participante, tipo_identificacion)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+         tipo_participante, tipo_identificacion, fecha_nacimiento)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        ON CONFLICT (dni) DO NOTHING
        RETURNING id`,
       [
@@ -193,7 +194,7 @@ router.post('/registro/evento1', async (req, res) => {
         b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
         b.ha_recibido_sael, b.ha_recibido_sael === 'Si' ? parseInt(b.cantidad_saeles, 10) : null,
         normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null, pinNuevo,
-        esExtranjero ? 'extranjero' : 'nacional', esExtranjero ? 'Pasaporte' : 'DNI'
+        esExtranjero ? 'extranjero' : 'nacional', esExtranjero ? 'Pasaporte' : 'DNI', b.fecha_nacimiento
       ]
     );
     if (insertParticipante.rows[0]) {
@@ -218,8 +219,8 @@ router.post('/registro/evento1', async (req, res) => {
            cargo_fihnec=$7, estado_civil=$8, hijos_cantidad=$9, comparte_testimonio=$10,
            tiempo_comparte_testimonio=$11, ha_recibido_sael=$12, cantidad_saeles=$13,
            contacto_emergencia_nombre=$14, contacto_emergencia_telefono=$15, observacion=$16,
-           actualizado_en = now()
-         WHERE id = $17`,
+           fecha_nacimiento=$17, actualizado_en = now()
+         WHERE id = $18`,
         [
           normalizarNombre(b.nombre_completo), celular, normalizarNombre(b.capitulo), b.zona,
           b.departamento, b.municipio, b.cargo_fihnec, b.estado_civil,
@@ -227,7 +228,7 @@ router.post('/registro/evento1', async (req, res) => {
           b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
           b.ha_recibido_sael, b.ha_recibido_sael === 'Si' ? parseInt(b.cantidad_saeles, 10) : null,
           normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia,
-          b.observacion ? b.observacion.trim() : null, participanteId
+          b.observacion ? b.observacion.trim() : null, b.fecha_nacimiento, participanteId
         ]
       );
     }

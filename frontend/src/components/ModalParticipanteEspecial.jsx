@@ -114,14 +114,14 @@ export default function ModalParticipanteEspecial({ tipo, onCerrar, onCreado }) 
             </select>
           </Campo>
           <Campo label="Municipio">
-            <select className={inputCls} value={form.municipio} onChange={e => set('municipio', e.target.value)}>
+            <select className={inputCls} value={form.municipio} onChange={e => set('municipio', e.target.value)} disabled={!form.departamento}>
               <option value="">—</option>
               {(MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || []).map(m => <option key={m}>{m}</option>)}
             </select>
           </Campo>
           <Campo label="Zona">
-            <select className={inputCls} value={form.zona} onChange={e => set('zona', e.target.value)}>
-              <option value="">—</option>
+            <select className={inputCls} value={form.zona} onChange={e => set('zona', e.target.value)} disabled={!form.departamento}>
+              <option value="">{form.departamento ? '—' : 'Primero elige un departamento'}</option>
               {zonasDeDepartamento(form.departamento, form.zona).map(z => <option key={z}>{z}</option>)}
             </select>
           </Campo>

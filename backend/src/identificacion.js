@@ -13,6 +13,9 @@ export function esPasaporte(valor) {
 export function normalizarIdentificacion(valor) {
   const texto = String(valor || '').trim();
   if (!texto) return '';
+  // Código interno de menores: MEN-00002 (acepta MEN00002, men-2, etc.) → siempre "MEN-00002".
+  const menor = texto.replace(/\s+/g, '').match(/^MEN-?(\d{1,5})$/i);
+  if (menor) return `MEN-${menor[1].padStart(5, '0')}`;
   if (esPasaporte(texto)) return texto.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   return soloDigitos(texto) || texto;
 }
