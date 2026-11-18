@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { mensajeError } from '../api';
+import ModalParticipanteEspecial from '../components/ModalParticipanteEspecial';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
+import { DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, zonasDeDepartamento, zonaValidaPara, procedenciaDe } from '../listas';
 
 const CAMPOS = [
   ['nombre_completo', 'Nombre completo'], ['dni', 'DNI'], ['celular', 'Celular'],
@@ -9,6 +12,7 @@ const CAMPOS = [
 ];
 
 function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
+  const confirmar = useConfirmar();
   const [form, setForm] = useState(participante);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -27,7 +31,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   }, [participante.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const regenerarPinParticipante = async () => {
-    if (!confirm('¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato, y se le pedirá que lo personalice en su próximo ingreso.')) return;
+    if (!(await confirmar({ titulo: 'Generar PIN nuevo', mensaje: '¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato, y se le pedirá que lo personalice en su próximo ingreso.', textoConfirmar: 'Sí, generar', peligro: true }))) return;
     setRegenerandoPin(true);
     try {
       const { data } = await api.post(`/admin/participantes/${participante.id}/regenerar-pin`);
@@ -40,6 +44,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   };
 
   const guardar = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       await api.put(`/admin/participantes/${participante.id}`, form);
@@ -48,6 +53,11 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
   };
 
   const toggleInscripcion = async (orden, inscrito) => {
+    if (!(await confirmar({
+      titulo: inscrito ? 'Quitar nivel' : 'Agregar nivel',
+      mensaje: inscrito ? `¿Quitar la inscripción al Nivel ${orden} de este participante?` : `¿Inscribir a este participante al Nivel ${orden}?`,
+      textoConfirmar: inscrito ? 'Sí, quitar' : 'Sí, inscribir', peligro: inscrito,
+    }))) return;
     try {
       if (inscrito) await api.delete(`/admin/participantes/${participante.id}/inscripciones/${orden}`);
       else await api.post(`/admin/participantes/${participante.id}/inscripciones/${orden}`);
@@ -99,17 +109,44 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
         )}
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          {CAMPOS.map(([campo, etiqueta]) => (
-            <label key={campo} className="block text-sm">
-              <span className="mb-1 block text-ink/60">{etiqueta}</span>
-              <input
-                disabled={soloLectura}
-                className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
-                value={form[campo] ?? ''}
-                onChange={e => setForm(f => ({ ...f, [campo]: e.target.value }))}
-              />
-            </label>
-          ))}
+          {CAMPOS.map(([campo, etiqueta]) => {
+            // Zona / Departamento / Municipio son listas enlazadas: al elegir el Departamento,
+            // Zona y Municipio muestran solo lo que le corresponde. Si el dato guardado no está
+            // en la lista (datos históricos), se conserva como opción para no perderlo.
+            const conActual = (lista, actual) => (actual && !lista.includes(actual) ? [...lista, actual] : lista);
+            let opciones = null;
+            if (campo === 'zona') opciones = zonasDeDepartamento(form.departamento, form.zona);
+            if (campo === 'departamento') opciones = conActual(DEPARTAMENTOS_HONDURAS, form.departamento);
+            if (campo === 'municipio') opciones = conActual(MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], form.municipio);
+            const cambiar = (valor) => setForm(f => (
+              campo === 'departamento'
+                ? { ...f, departamento: valor, municipio: '', zona: zonaValidaPara(valor, f.zona) }
+                : { ...f, [campo]: valor }
+            ));
+            return (
+              <label key={campo} className="block text-sm">
+                <span className="mb-1 block text-ink/60">{etiqueta}</span>
+                {opciones ? (
+                  <select
+                    disabled={soloLectura}
+                    className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={form[campo] ?? ''}
+                    onChange={e => cambiar(e.target.value)}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {opciones.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    disabled={soloLectura}
+                    className="w-full rounded-lg border border-ink/15 px-3 py-2 disabled:bg-ink/5"
+                    value={form[campo] ?? ''}
+                    onChange={e => cambiar(e.target.value)}
+                  />
+                )}
+              </label>
+            );
+          })}
         </div>
 
         <label className={`mt-4 flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-sm font-medium ${
@@ -170,7 +207,6 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                         defaultValue={refCiclo.current}
                         title={`El ciclo en vivo de este nivel va en el #${insc.ciclo_actual}. Si esta persona es de una promoción histórica (Excel), ponle un número que no coincida (ej. 0) para que no se mezcle con el grupo activo.`}
                         onChange={e => { refCiclo.current = e.target.value; }}
-                        onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
                         className="w-16 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
                       />
                       <span className={`text-xs ${cicloDesfasado ? 'text-gold' : 'text-ink/30'}`}>
@@ -184,7 +220,6 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                         disabled={soloLectura}
                         defaultValue={refFecha.current}
                         onChange={e => { refFecha.current = e.target.value; }}
-                        onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
                         className="rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
                       />
                     </span>
@@ -196,10 +231,19 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
                         defaultValue={refPromocion.current}
                         placeholder="Ej. 5"
                         onChange={e => { refPromocion.current = e.target.value; }}
-                        onBlur={() => guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current)}
                         className="w-20 rounded-lg border border-ink/15 px-2 py-1 text-sm disabled:bg-ink/5"
                       />
                     </span>
+                    {!soloLectura && (
+                      <button type="button" disabled={guardandoGraduacion === insc.orden}
+                        onClick={async () => {
+                          if (!(await confirmar({ titulo: 'Guardar graduación', mensaje: `¿Guardar el ciclo, la fecha de graduación y la promoción del Nivel ${insc.orden}?`, textoConfirmar: 'Sí, guardar', textoCancelar: 'Revisar' }))) return;
+                          guardarGraduacion(insc.orden, refFecha.current, refPromocion.current, refCiclo.current);
+                        }}
+                        className="rounded-full bg-gold px-3 py-1 text-xs font-semibold text-night hover:bg-gold-light disabled:opacity-60">
+                        Guardar graduación
+                      </button>
+                    )}
                     {guardandoGraduacion === insc.orden && <span className="text-xs text-gold">Guardando…</span>}
                   </span>
                 </div>
@@ -234,7 +278,7 @@ function ModalEditar({ participante, onCerrar, onGuardado, soloLectura }) {
 
         {!soloLectura && (
           <div className="mt-6 flex justify-end gap-3">
-            <button onClick={onCerrar} className="rounded-full px-5 py-2 text-sm font-medium text-ink/60 hover:bg-ink/5">Cancelar</button>
+            <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) onCerrar(); }} className="rounded-full px-5 py-2 text-sm font-medium text-ink/60 hover:bg-ink/5">Cancelar</button>
             <button onClick={guardar} disabled={guardando} className="rounded-full bg-gold px-6 py-2 text-sm font-semibold text-night hover:bg-gold-light">
               {guardando ? 'Guardando…' : 'Guardar cambios'}
             </button>
@@ -305,10 +349,12 @@ function ModalEscanearQR({ onCerrar, onDetectado }) {
 }
 
 export default function AdminParticipantes() {
+  const confirmar = useConfirmar();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [nivelParticipantes, setNivelParticipantes] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
   const [puedeMarcarPresencial, setPuedeMarcarPresencial] = useState(usuario?.rol === 'super_admin');
   const soloLectura = nivelParticipantes !== 'edicion';
+  const [nuevoEspecial, setNuevoEspecial] = useState(null); // 'menor' | 'extranjero' | null
   const [toast, setToast] = useState(null); // { texto, tipo: 'registrado' | 'desmarcado' }
 
   const mostrarToast = (texto, tipo) => {
@@ -381,11 +427,11 @@ export default function AdminParticipantes() {
       // Aquí solo se quita su inscripción al nivel/ciclo activo (ej. no llegó al evento).
       // El participante y su historial en otros niveles quedan intactos.
       if (!eventoActual) return;
-      if (!confirm(`¿Quitar a ${p.nombre_completo} de "${eventoActual.nombre}" (ciclo en curso)? Su historial en otros niveles no se toca. Esta acción no se puede deshacer.`)) return;
+      if (!(await confirmar({ titulo: 'Quitar del ciclo en curso', mensaje: `¿Quitar a ${p.nombre_completo} de "${eventoActual.nombre}" (ciclo en curso)? Su historial en otros niveles no se toca. Esta acción no se puede deshacer.`, textoConfirmar: 'Sí, quitar', peligro: true }))) return;
       await api.delete(`/admin/participantes/${p.id}/inscripciones/${eventoActual.orden}`);
     } else {
       // Aquí sí se borra al participante por completo, con todo su historial.
-      if (!confirm(`¿Eliminar a ${p.nombre_completo} de la base de datos por completo, incluyendo todo su historial en los 4 niveles? Esta acción no se puede deshacer.`)) return;
+      if (!(await confirmar({ titulo: 'Eliminar participante', mensaje: `¿Eliminar a ${p.nombre_completo} de la base de datos por completo, incluyendo todo su historial en los 4 niveles? Esta acción no se puede deshacer.`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
       await api.delete(`/admin/participantes/${p.id}`);
     }
     cargar();
@@ -568,6 +614,18 @@ function imprimirEtiqueta(nombreCompleto) {
               📷 Escanear QR
             </button>
           )}
+          {!soloLectura && (
+            <>
+              <button type="button" onClick={() => setNuevoEspecial('menor')}
+                className="rounded-full border border-gold/40 bg-white px-4 py-2.5 text-sm font-semibold text-gold shadow-sm transition hover:bg-gold/10">
+                + Agregar menor
+              </button>
+              <button type="button" onClick={() => setNuevoEspecial('extranjero')}
+                className="rounded-full border border-gold/40 bg-white px-4 py-2.5 text-sm font-semibold text-gold shadow-sm transition hover:bg-gold/10">
+                🌎 Agregar extranjero
+              </button>
+            </>
+          )}
           {eventoParaColumna && (
             <p className="text-xs text-ink/50">
               ✓ Marca "Registrado" cuando la persona llegue físicamente. Si alguien no se presenta, elimínalo de la lista.
@@ -596,25 +654,33 @@ function imprimirEtiqueta(nombreCompleto) {
               <th className="px-4 py-3">Nombre</th>
               <th className="px-4 py-3 text-center">DNI</th>
               <th className="px-4 py-3">Capítulo</th>
+              <th className="px-4 py-3">Procedencia</th>
               <th className="px-4 py-3 text-center">Niveles</th>
               {eventoParaColumna && <th className="px-4 py-3 text-center">Registrado</th>}
               <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={eventoParaColumna ? 6 : 5} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={eventoParaColumna ? 7 : 6} className="px-4 py-8 text-center text-ink/40">Cargando…</td></tr>}
             {!cargando && datosOrdenados.map((p, i) => (
               <tr key={p.id} className={`border-t border-ink/5 hover:bg-gold/10 ${
                 p.registrado_presencial ? 'bg-palm/10' : (i % 2 === 1 ? 'bg-gold-pale/25' : 'bg-white')
               }`}>
                 <td className="px-4 py-3 font-medium text-ink">
                   {p.nombre_completo}
+                  {p.tipo_participante === 'menor' && (
+                    <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-gold">Menor</span>
+                  )}
+                  {p.tipo_participante === 'extranjero' && (
+                    <span className="ml-2 rounded-full bg-palm/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-palm">🌎 Extranjero</span>
+                  )}
                   {p.fallecido && (
                     <span title="Q.E.P.D." className="ml-2 text-ink/40">✝</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-center text-ink/60">{p.dni}</td>
                 <td className="px-4 py-3 text-ink/60">{p.capitulo || '—'}</td>
+                <td className="px-4 py-3 text-ink/60">{procedenciaDe(p.departamento, p.municipio) || '—'}</td>
                 <td className="px-4 py-3 text-center">
                   <div className="flex justify-center gap-1">
                     {[1, 2, 3, 4].map(n => (
@@ -644,7 +710,7 @@ function imprimirEtiqueta(nombreCompleto) {
               </tr>
             ))}
             {!cargando && resultado.datos.length === 0 && (
-              <tr><td colSpan={eventoParaColumna ? 6 : 5} className="px-4 py-8 text-center text-ink/40">Sin resultados.</td></tr>
+              <tr><td colSpan={eventoParaColumna ? 7 : 6} className="px-4 py-8 text-center text-ink/40">Sin resultados.</td></tr>
             )}
           </tbody>
         </table>
@@ -664,6 +730,18 @@ function imprimirEtiqueta(nombreCompleto) {
           soloLectura={soloLectura}
           onCerrar={() => setSeleccionado(null)}
           onGuardado={(cerrar = true) => { cargar(); if (cerrar) setSeleccionado(null); }}
+        />
+      )}
+
+      {nuevoEspecial && (
+        <ModalParticipanteEspecial
+          tipo={nuevoEspecial}
+          onCerrar={() => setNuevoEspecial(null)}
+          onCreado={(r) => {
+            setNuevoEspecial(null);
+            cargar();
+            mostrarToast(`${r.nombre_completo} registrado (${r.dni})`, 'registrado');
+          }}
         />
       )}
 

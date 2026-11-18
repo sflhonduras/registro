@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
 
 const ETIQUETA_ROL = {
   super_admin: 'Super Administrador',
@@ -41,6 +42,7 @@ const DESCRIPCION_ROL = {
 };
 
 function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
+  const confirmar = useConfirmar();
   const esSuperAdmin = usuario.rol === 'super_admin';
   const [nombre, setNombre] = useState(usuario.nombre);
   const [rol, setRol] = useState(usuario.rol);
@@ -56,6 +58,7 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
       setError('La contraseña debe tener al menos 6 caracteres, o déjala en blanco para no cambiarla.');
       return;
     }
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       const cuerpo = { nombre, activo };
@@ -72,7 +75,7 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
   };
 
   const reiniciar2fa = async () => {
-    if (!confirm(`¿Reiniciar el 2FA de ${usuario.nombre}? La próxima vez que entre, va a tener que escanear un código QR nuevo (útil si perdió el celular).`)) return;
+    if (!(await confirmar({ titulo: 'Reiniciar 2FA', mensaje: `¿Reiniciar el 2FA de ${usuario.nombre}? La próxima vez que entre, va a tener que escanear un código QR nuevo (útil si perdió el celular).`, textoConfirmar: 'Sí, reiniciar', peligro: true }))) return;
     setReiniciando2fa(true); setError('');
     try {
       await api.post(`/admin/usuarios/${usuario.id}/resetear-2fa`);
@@ -157,7 +160,7 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
         {error && <p className="mt-3 rounded-lg bg-ember/10 p-2 text-xs text-ember">{error}</p>}
 
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={() => onCerrar()} className="rounded-full border border-ink/15 px-4 py-2 text-sm text-ink/60 hover:bg-ink/5">
+          <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) onCerrar(); }} className="rounded-full border border-ink/15 px-4 py-2 text-sm text-ink/60 hover:bg-ink/5">
             Cancelar
           </button>
           <button onClick={guardar} disabled={guardando}
@@ -171,6 +174,7 @@ function ModalEditarUsuario({ usuario, onCerrar, onGuardado }) {
 }
 
 function PanelPermisos({ usuario, modulos, onCerrar }) {
+  const confirmar = useConfirmar();
   const [permisos, setPermisos] = useState({});
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -185,6 +189,7 @@ function PanelPermisos({ usuario, modulos, onCerrar }) {
   }, [usuario.id]);
 
   const guardar = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     const lista = Object.entries(permisos)
       .filter(([, nivel]) => nivel)
@@ -233,7 +238,7 @@ function PanelPermisos({ usuario, modulos, onCerrar }) {
         {error && <p className="mt-3 rounded-lg bg-ember/10 p-2 text-xs text-ember">{error}</p>}
 
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={() => onCerrar(false)} className="rounded-full border border-ink/15 px-4 py-2 text-sm text-ink/60 hover:bg-ink/5">
+          <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) onCerrar(false); }} className="rounded-full border border-ink/15 px-4 py-2 text-sm text-ink/60 hover:bg-ink/5">
             Cancelar
           </button>
           <button onClick={guardar} disabled={guardando || cargando}
@@ -247,6 +252,7 @@ function PanelPermisos({ usuario, modulos, onCerrar }) {
 }
 
 export default function AdminUsuarios() {
+  const confirmar = useConfirmar();
   const [usuarios, setUsuarios] = useState([]);
   const [modulos, setModulos] = useState([]);
   const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'consulta' });
@@ -263,6 +269,7 @@ export default function AdminUsuarios() {
 
   const crear = async (e) => {
     e.preventDefault();
+    if (!(await confirmar({ titulo: 'Crear usuario', mensaje: '¿Confirmas que quieres crear este usuario?', textoConfirmar: 'Sí, crear', textoCancelar: 'Revisar' }))) return;
     setError(''); setCreando(true);
     try {
       const { data: nuevoUsuario } = await api.post('/admin/usuarios', form);
@@ -278,7 +285,7 @@ export default function AdminUsuarios() {
   };
 
   const eliminar = async (u) => {
-    if (!confirm(`¿Eliminar el usuario ${u.email}?`)) return;
+    if (!(await confirmar({ titulo: 'Eliminar usuario', mensaje: `¿Eliminar el usuario ${u.email}?`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     await api.delete(`/admin/usuarios/${u.id}`);
     cargar();
   };

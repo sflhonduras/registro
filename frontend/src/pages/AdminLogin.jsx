@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import { useConfirmar } from '../components/ConfirmProvider';
 
 const ORDEN_MODULOS = ['estadisticas', 'participantes', 'diplomas', 'reportes', 'medallas', 'servidores', 'inventario', 'transporte', 'eventos'];
 const RUTA_POR_MODULO = {
@@ -31,6 +32,7 @@ function LlamaFirma({ className = '' }) {
 }
 
 export default function AdminLogin() {
+  const confirmar = useConfirmar();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -124,6 +126,7 @@ export default function AdminLogin() {
     setError('');
     if (claveNueva !== claveNuevaConfirmar) { setError('La nueva contraseña no coincide en ambos campos.'); return; }
     if (claveNueva.length < 6) { setError('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
+    if (!(await confirmar({ titulo: 'Cambiar contraseña', mensaje: '¿Confirmas que quieres cambiar tu contraseña?', textoConfirmar: 'Sí, cambiar', textoCancelar: 'Revisar' }))) return;
     setCargando(true);
     try {
       const { data } = await api.post('/auth/cambiar-clave-login', { clave_nueva: claveNueva, dispositivo_token: localStorage.getItem('sfl_dispositivo_token') });

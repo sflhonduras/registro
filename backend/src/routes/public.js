@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { normalizarNombre, soloDigitos } from '../texto.js';
+import { esPasaporte, normalizarIdentificacion, validarPasaporte, validarDniHn } from '../identificacion.js';
 import { MUNICIPIOS_POR_DEPARTAMENTO } from '../municipios.js';
 import { obtenerInformePorToken } from '../informesCierre.js';
 import { generarInformePptx } from '../informePptx.js';
@@ -80,8 +81,12 @@ function validarDatosEvento1(b) {
       return `El campo "${campo}" es obligatorio.`;
     }
   }
-  const dni = soloDigitos(b.dni);
-  if (!dni || dni.length !== 13) return 'El número de identidad (DNI) debe tener 13 dígitos.';
+  const identificacion = normalizarIdentificacion(b.dni);
+  if (b.es_extranjero === true) {
+    if (!validarPasaporte(identificacion)) return 'El número de pasaporte debe ser alfanumérico (5 a 20 caracteres).';
+  } else if (!validarDniHn(identificacion)) {
+    return 'El número de identidad (DNI) debe tener 13 dígitos.';
+  }
   const municipiosDelDepartamento = MUNICIPIOS_POR_DEPARTAMENTO[b.departamento];
   if (!municipiosDelDepartamento) return 'El departamento indicado no es válido.';
   if (!municipiosDelDepartamento.includes(b.municipio)) {
@@ -123,7 +128,7 @@ router.get('/eventos/:orden/estado', async (req, res) => {
 // GET /api/evento1/verificar/:dni -> revisa si ya existe un participante con ese DNI,
 // para preguntarle si quiere actualizar sus datos antes de (re)inscribirlo al Nivel I.
 router.get('/evento1/verificar/:dni', async (req, res) => {
-  const dni = soloDigitos(req.params.dni) || String(req.params.dni).trim();
+  const dni = normalizarIdentificacion(req.params.dni);
   const partRes = await query('SELECT * FROM participantes WHERE dni = $1', [dni]);
   const participante = partRes.rows[0];
   if (!participante) return res.json({ existe: false });
@@ -144,8 +149,9 @@ router.get('/evento1/verificar/:dni', async (req, res) => {
 // body.actualizar_datos: true (actualiza sus datos), false (los deja igual), u omitido (nuevo participante).
 router.post('/registro/evento1', async (req, res) => {
   const b = req.body || {};
-  const dni = soloDigitos(b.dni) || String(b.dni || '').trim();
-  if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI).' });
+  const dni = normalizarIdentificacion(b.dni);
+  if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI) o pasaporte.' });
+  const esExtranjero = b.es_extranjero === true;
 
   const evRes = await query('SELECT * FROM eventos WHERE orden = 1');
   const evento = evRes.rows[0];
@@ -175,8 +181,9 @@ router.post('/registro/evento1', async (req, res) => {
       `INSERT INTO participantes
         (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec,
          estado_civil, hijos_cantidad, comparte_testimonio, tiempo_comparte_testimonio,
-         ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion, pin)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         ha_recibido_sael, cantidad_saeles, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion, pin,
+         tipo_participante, tipo_identificacion)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        ON CONFLICT (dni) DO NOTHING
        RETURNING id`,
       [
@@ -185,7 +192,8 @@ router.post('/registro/evento1', async (req, res) => {
         parseInt(b.hijos_cantidad, 10), b.comparte_testimonio,
         b.comparte_testimonio === 'Si' ? String(b.tiempo_comparte_testimonio).trim() : null,
         b.ha_recibido_sael, b.ha_recibido_sael === 'Si' ? parseInt(b.cantidad_saeles, 10) : null,
-        normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null, pinNuevo
+        normalizarNombre(b.contacto_emergencia_nombre), telefonoEmergencia, b.observacion ? b.observacion.trim() : null, pinNuevo,
+        esExtranjero ? 'extranjero' : 'nacional', esExtranjero ? 'Pasaporte' : 'DNI'
       ]
     );
     if (insertParticipante.rows[0]) {
@@ -245,9 +253,13 @@ router.post('/registro/:orden', async (req, res) => {
   if (![2, 3, 4].includes(orden)) {
     return res.status(400).json({ error: 'Ruta de registro inválida.' });
   }
-  const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
-  if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI).' });
-  if (dni.length !== 13) return res.status(400).json({ error: 'El número de identidad (DNI) debe tener 13 dígitos.' });
+  const dni = normalizarIdentificacion((req.body || {}).dni);
+  if (!dni) return res.status(400).json({ error: 'Debes indicar tu número de identidad (DNI) o pasaporte.' });
+  if ((req.body || {}).es_extranjero === true || esPasaporte(dni)) {
+    if (!validarPasaporte(dni)) return res.status(400).json({ error: 'El número de pasaporte debe ser alfanumérico (5 a 20 caracteres).' });
+  } else if (!validarDniHn(dni)) {
+    return res.status(400).json({ error: 'El número de identidad (DNI) debe tener 13 dígitos.' });
+  }
 
   const evActualRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
   const evAnteriorRes = await query('SELECT * FROM eventos WHERE orden = $1', [orden - 1]);
@@ -298,7 +310,7 @@ router.post('/registro/:orden', async (req, res) => {
 // GET /api/consulta/:orden/:dni -> permite validar elegibilidad sin registrar (para UI de "verificar")
 router.get('/consulta/:orden/:dni', async (req, res) => {
   const orden = parseInt(req.params.orden, 10);
-  const dni = soloDigitos(req.params.dni) || String(req.params.dni).trim();
+  const dni = normalizarIdentificacion(req.params.dni);
   const partRes = await query('SELECT id, nombre_completo FROM participantes WHERE dni = $1', [dni]);
   const participante = partRes.rows[0];
   if (!participante) return res.json({ existe: false, habilitado: false });

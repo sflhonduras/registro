@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
 
 const ETIQUETA_CATEGORIA = { general: 'General (todos, cada día)', cumpleanos: 'Especial de cumpleaños' };
 
 export default function AdminVersiculos() {
+  const confirmar = useConfirmar();
   const [versiculos, setVersiculos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -30,6 +32,7 @@ export default function AdminVersiculos() {
 
   const guardar = async () => {
     if (!texto.trim() || !referencia.trim()) { setError('Escribe el texto y la referencia (ej. "Salmos 23:1").'); return; }
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       if (editandoId) {
@@ -56,7 +59,7 @@ export default function AdminVersiculos() {
   };
 
   const eliminar = async (v) => {
-    if (!confirm(`¿Eliminar definitivamente este versículo (${v.referencia})? No se puede deshacer.`)) return;
+    if (!(await confirmar({ titulo: 'Eliminar versículo', mensaje: `¿Eliminar definitivamente este versículo (${v.referencia})? No se puede deshacer.`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     try {
       await api.delete(`/admin/mensajes-biblicos/${v.id}`);
       if (editandoId === v.id) limpiarFormulario();
@@ -111,7 +114,7 @@ export default function AdminVersiculos() {
             {guardando ? 'Guardando…' : editandoId ? 'Guardar cambios' : '+ Agregar versículo'}
           </button>
           {editandoId && (
-            <button onClick={limpiarFormulario} className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5">
+            <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) limpiarFormulario(); }} className="rounded-full border border-ink/20 px-5 py-2 text-sm font-semibold text-ink hover:bg-ink/5">
               Cancelar edición
             </button>
           )}

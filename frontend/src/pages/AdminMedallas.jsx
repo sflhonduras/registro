@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar } from '../components/ConfirmProvider';
 
 const TIPOS = ['Bronce', 'Plata', 'Oro', 'Platino', 'Vuelta Completa'];
 const EMOJI = { Bronce: '🥉', Plata: '🥈', Oro: '🥇', Platino: '🏆', 'Vuelta Completa': '🌟' };
 
 export default function AdminMedallas() {
+  const confirmar = useConfirmar();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [nivelMedallas, setNivelMedallas] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
   const soloLectura = nivelMedallas !== 'edicion';
@@ -47,6 +49,7 @@ export default function AdminMedallas() {
 
   const otorgar = async () => {
     if (!participanteId) { setError('Selecciona un participante de la lista.'); return; }
+    if (!(await confirmar({ titulo: 'Otorgar medalla', mensaje: '¿Confirmas que quieres otorgar esta medalla?', textoConfirmar: 'Sí, otorgar', textoCancelar: 'Revisar' }))) return;
     setGuardando(true); setError('');
     try {
       await api.post('/admin/medallas-manuales', { participante_id: participanteId, tipo, cantidad, nota });
@@ -60,7 +63,7 @@ export default function AdminMedallas() {
   };
 
   const eliminar = async (id) => {
-    if (!confirm('¿Quitar esta medalla otorgada a mano?')) return;
+    if (!(await confirmar({ titulo: 'Quitar medalla', mensaje: '¿Quitar esta medalla otorgada a mano?', textoConfirmar: 'Sí, quitar', peligro: true }))) return;
     try {
       await api.delete(`/admin/medallas-manuales/${id}`);
       cargar();

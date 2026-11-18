@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR } from '../components/ConfirmProvider';
 
 function fechaParaInput(v) {
   if (!v) return '';
@@ -15,6 +16,7 @@ function horaParaInput(v) {
 }
 
 export default function AdminEventos() {
+  const confirmar = useConfirmar();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const soloLectura = usuario?.rol !== 'admin' && usuario?.rol !== 'super_admin';
   const [eventos, setEventos] = useState([]);
@@ -33,6 +35,7 @@ export default function AdminEventos() {
   };
 
   const guardar = async (ev) => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardandoId(ev.id);
     setMensajes(m => ({ ...m, [ev.id]: '' }));
     try {
@@ -56,29 +59,37 @@ export default function AdminEventos() {
   };
 
   const iniciarNuevoCiclo = async (ev) => {
-    const confirmado = confirm(
+    const confirmado = await confirmar({ titulo: 'Nuevo ciclo', textoConfirmar: 'Sí, continuar', mensaje:
       `¿Iniciar un nuevo ciclo para "${ev.nombre}"?\n\n` +
       `Esto NO borra ningún dato — todo el historial se conserva. Pero a partir de ahora, ` +
       `las estadísticas, el contador de registros y la lista de Diplomas de este nivel van a mostrar ` +
       `solo las inscripciones nuevas, como si arrancaras de cero para el próximo evento.\n\n` +
-      `Úsalo cuando termines un evento y quieras empezar a contar desde cero para el siguiente.`
-    );
+      `Úsalo cuando termines un evento y quieras empezar a contar desde cero para el siguiente.` +
+      (ev.orden === 4 ? `\n\nComo es el Nivel IV, la promoción actual también avanza sola al número del nuevo ciclo (#${ev.ciclo_actual + 1}).` : '')
+    });
     if (!confirmado) return;
     try {
       const { data } = await api.post(`/admin/eventos/${ev.orden}/nuevo-ciclo`);
       setMensajes(m => ({ ...m, [ev.id]: data.mensaje }));
       cargar();
+    } catch (err) {
+      setMensajes(m => ({ ...m, [ev.id]: mensajeError(err) }));
+    }
+  };
 
-      if (ev.orden === 4) {
-        const avanzarPromocion = confirm(
-          `El Nivel IV es la graduación final del ciclo. ¿También quieres avanzar a la siguiente promoción?\n\n` +
-          `Esto suma +1 al número de promoción que se muestra en Estadísticas Generales.`
-        );
-        if (avanzarPromocion) {
-          const { data: dataPromo } = await api.post('/admin/promocion/avanzar');
-          alert(dataPromo.mensaje);
-        }
-      }
+  const finalizarEvento = async (ev) => {
+    const confirmado = await confirmar({ titulo: 'Finalizar evento', textoConfirmar: 'Sí, continuar', mensaje:
+      `¿Finalizar "${ev.nombre}"?\n\n` +
+      `Se bloquea el registro de este nivel y deja de ser el evento actual (el contador del panel, ` +
+      `Cocina, Inventario y Transporte quedan sin evento actual hasta que marques otro). ` +
+      `No se borra ningún dato y se genera su informe de cierre.\n\n` +
+      `Es reversible: puedes volver a marcarlo como evento actual y habilitar el registro.`
+    });
+    if (!confirmado) return;
+    try {
+      const { data } = await api.post(`/admin/eventos/${ev.orden}/finalizar`);
+      setMensajes(m => ({ ...m, [ev.id]: data.mensaje }));
+      cargar();
     } catch (err) {
       setMensajes(m => ({ ...m, [ev.id]: mensajeError(err) }));
     }
@@ -116,7 +127,15 @@ export default function AdminEventos() {
                 />
                 <span className="rounded-full bg-ink/5 px-2.5 py-0.5 text-xs font-medium text-ink/50">Ciclo #{ev.ciclo_actual}</span>
                 {ev.es_actual ? (
-                  <span className="rounded-full bg-gold px-3 py-1 text-xs font-bold text-night">⭐ Evento actual</span>
+                  <>
+                    <span className="rounded-full bg-gold px-3 py-1 text-xs font-bold text-night">⭐ Evento actual</span>
+                    {!soloLectura && (
+                      <button onClick={() => finalizarEvento(ev)} type="button"
+                        className="rounded-full border border-ember/40 px-3 py-1 text-xs font-medium text-ember hover:bg-ember/5">
+                        Finalizar evento
+                      </button>
+                    )}
+                  </>
                 ) : (
                   !soloLectura && (
                     <button onClick={() => marcarComoActual(ev)} type="button"

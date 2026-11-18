@@ -2,9 +2,10 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import PDFDocument from 'pdfkit';
 import xlsx from 'xlsx';
-import { query } from '../db.js';
+import { query, pool } from '../db.js';
 import { requireAuth, requireRole, requireModulo, requireSuperAdmin, requireEditarPresencial } from '../auth.js';
-import { normalizarNombre } from '../texto.js';
+import { normalizarNombre, soloDigitos } from '../texto.js';
+import { normalizarIdentificacion, validarPasaporte, validarDniHn, validarFechaNacimiento } from '../identificacion.js';
 import { guardarEnPapelera, guardarParticipanteEnPapelera } from '../papelera.js';
 import { regenerarPin } from '../pinSeguridad.js';
 import { obtenerOCrearEnlaceEnVivo } from '../enlaceEnVivo.js';
@@ -27,6 +28,11 @@ async function contarSinRequisitos(orden, ciclo) {
 
 const router = Router();
 router.use(requireAuth); // todas las rutas de admin requieren sesión
+
+// "Procedencia" = Departamento, Municipio (columna de Diplomas y sus exportaciones).
+function procedenciaDe(departamento, municipio) {
+  return departamento ? `${departamento}${municipio ? ', ' + municipio : ''}` : '';
+}
 router.use((req, res, next) => {
   if (req.user.rol === 'cocina') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
@@ -151,6 +157,117 @@ router.post('/participantes', requireModulo('participantes', 'edicion'), async (
   }
 });
 
+/* ------------------- EXTRANJEROS Y MENORES (alta manual) ------------------ */
+
+// Crea un participante "especial" (extranjero con pasaporte, o menor sin DNI) y, si se indica
+// un nivel, lo inscribe de una vez a ese nivel en su ciclo actual — todo en una transacción:
+// si falla la inscripción, no queda el participante huérfano. NO se exige haber completado el
+// nivel anterior (a propósito: de los menores solo se quiere tener el registro).
+async function crearParticipanteEspecial({ tipo, identificacion, tipoIdentificacion, d, orden }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let eventoId = null; let cicloEvento = null;
+    if (orden) {
+      const ev = await client.query('SELECT id, ciclo_actual FROM eventos WHERE orden = $1', [orden]);
+      if (!ev.rows[0]) { await client.query('ROLLBACK'); return { status: 404, error: 'El nivel indicado no existe.' }; }
+      eventoId = ev.rows[0].id; cicloEvento = ev.rows[0].ciclo_actual;
+    }
+    const pin = String(Math.floor(1000 + Math.random() * 9000));
+    const ins = await client.query(
+      `INSERT INTO participantes
+        (nombre_completo, dni, celular, capitulo, zona, departamento, municipio, cargo_fihnec, estado_civil,
+         hijos_cantidad, contacto_emergencia_nombre, contacto_emergencia_telefono, observacion,
+         fecha_nacimiento, tipo_participante, tipo_identificacion, pin)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       RETURNING id, nombre_completo, dni`,
+      [
+        normalizarNombre(d.nombre_completo), identificacion, d.celular || null,
+        d.capitulo ? normalizarNombre(d.capitulo) : null, d.zona || null, d.departamento || null, d.municipio || null,
+        d.cargo_fihnec || null, d.estado_civil || null,
+        d.hijos_cantidad !== undefined && d.hijos_cantidad !== '' && d.hijos_cantidad !== null ? parseInt(d.hijos_cantidad, 10) : null,
+        d.contacto_emergencia_nombre ? normalizarNombre(d.contacto_emergencia_nombre) : null,
+        d.contacto_emergencia_telefono || null, d.observacion ? String(d.observacion).trim() : null,
+        d.fecha_nacimiento || null, tipo, tipoIdentificacion, pin
+      ]
+    );
+    if (eventoId) {
+      await client.query(
+        'INSERT INTO inscripciones (participante_id, evento_id, origen, ciclo) VALUES ($1,$2,$3,$4)',
+        [ins.rows[0].id, eventoId, 'admin', cicloEvento]
+      );
+    }
+    await client.query('COMMIT');
+    return { status: 201, participante: ins.rows[0] };
+  } catch (e) {
+    await client.query('ROLLBACK');
+    if (e.code === '23505') return { status: 409, error: 'Esa identificación ya está registrada.' };
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+function validarTelefono8(v) { const t = soloDigitos(v || ''); return t && t.length === 8 ? t : null; }
+
+// POST /api/admin/participantes/extranjero
+router.post('/participantes/extranjero', requireModulo('participantes', 'edicion'), async (req, res) => {
+  const b = req.body || {};
+  const pasaporte = normalizarIdentificacion(b.pasaporte ?? b.dni);
+  if (!validarPasaporte(pasaporte)) return res.status(400).json({ error: 'El número de pasaporte debe ser alfanumérico (5 a 20 caracteres).' });
+  if (!b.nombre_completo || !String(b.nombre_completo).trim()) return res.status(400).json({ error: 'El nombre completo es obligatorio.' });
+  if (b.fecha_nacimiento && !validarFechaNacimiento(b.fecha_nacimiento)) return res.status(400).json({ error: 'La fecha de nacimiento no es válida.' });
+  const celular = b.celular ? validarTelefono8(b.celular) : null;
+  if (b.celular && !celular) return res.status(400).json({ error: 'El celular debe tener exactamente 8 dígitos.' });
+  const telEmergencia = b.contacto_emergencia_telefono ? validarTelefono8(b.contacto_emergencia_telefono) : null;
+  if (b.contacto_emergencia_telefono && !telEmergencia) return res.status(400).json({ error: 'El teléfono de emergencia debe tener exactamente 8 dígitos.' });
+  const orden = b.orden ? parseInt(b.orden, 10) : null;
+  const r = await crearParticipanteEspecial({
+    tipo: 'extranjero', identificacion: pasaporte, tipoIdentificacion: 'Pasaporte',
+    d: { ...b, celular, contacto_emergencia_telefono: telEmergencia }, orden
+  });
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.status(201).json(r.participante);
+});
+
+// POST /api/admin/participantes/menor — sin DNI se le asigna un código interno (MEN-00001…);
+// el guion evita que choque con DNI o pasaporte. Si trae DNI de 13 dígitos, se guarda ese.
+// El responsable se guarda como contacto de emergencia (obligatorio). Si ya existe alguien con
+// el mismo nombre y fecha de nacimiento, no se duplica: se avisa.
+router.post('/participantes/menor', requireModulo('participantes', 'edicion'), async (req, res) => {
+  const b = req.body || {};
+  if (!b.nombre_completo || !String(b.nombre_completo).trim()) return res.status(400).json({ error: 'El nombre completo es obligatorio.' });
+  if (!b.fecha_nacimiento || !validarFechaNacimiento(b.fecha_nacimiento)) return res.status(400).json({ error: 'La fecha de nacimiento es obligatoria y debe ser válida.' });
+  if (!b.contacto_emergencia_nombre || !String(b.contacto_emergencia_nombre).trim()) return res.status(400).json({ error: 'El nombre del responsable es obligatorio.' });
+  const telResponsable = validarTelefono8(b.contacto_emergencia_telefono);
+  if (!telResponsable) return res.status(400).json({ error: 'El teléfono del responsable debe tener exactamente 8 dígitos.' });
+  const dni = b.dni ? normalizarIdentificacion(b.dni) : '';
+  if (dni && !validarDniHn(dni)) return res.status(400).json({ error: 'El DNI debe tener 13 dígitos (o déjalo vacío para asignar un código interno).' });
+
+  const nombreLimpio = String(b.nombre_completo).trim().replace(/\s+/g, ' ');
+  const dup = await query(
+    `SELECT id, nombre_completo, dni FROM participantes
+     WHERE fecha_nacimiento = $2 AND lower(regexp_replace(trim(nombre_completo), '\\s+', ' ', 'g')) = lower($1) LIMIT 1`,
+    [nombreLimpio, b.fecha_nacimiento]
+  );
+  if (dup.rows[0]) {
+    return res.status(409).json({ duplicado: true, participante: dup.rows[0],
+      error: `Ya existe un participante con ese nombre y fecha de nacimiento (${dup.rows[0].dni}). No se creó otro registro.` });
+  }
+  let identificacion = dni;
+  if (!identificacion) {
+    const { rows } = await query("SELECT nextval('menores_codigo_seq') AS n");
+    identificacion = `MEN-${String(rows[0].n).padStart(5, '0')}`;
+  }
+  const orden = b.orden ? parseInt(b.orden, 10) : null;
+  const r = await crearParticipanteEspecial({
+    tipo: 'menor', identificacion, tipoIdentificacion: dni ? 'DNI' : 'Código interno',
+    d: { ...b, nombre_completo: nombreLimpio, celular: null, contacto_emergencia_telefono: telResponsable }, orden
+  });
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.status(201).json(r.participante);
+});
+
 // PUT /api/admin/participantes/:id - requiere edición en participantes
 router.put('/participantes/:id', requireModulo('participantes', 'edicion'), async (req, res) => {
   const b = req.body || {};
@@ -268,14 +385,39 @@ router.post('/eventos/:orden/nuevo-ciclo', requireSuperAdmin, async (req, res) =
   // Si este nivel tenía un informe de cierre todavía "vivo" (sin congelar), este es el
   // momento en que su ciclo termina de verdad — se congela la foto fija ANTES de avanzar
   // el ciclo, con los datos tal como quedaron.
-  await congelarInformesDeNivel(parseInt(req.params.orden, 10));
+  const ordenNivel = parseInt(req.params.orden, 10);
+
+  const { rows: previo } = await query('SELECT ciclo_actual FROM eventos WHERE orden = $1', [ordenNivel]);
+  if (!previo[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
+
+  // Primero se CREA el informe de cierre del ciclo que termina (si nunca se había generado)
+  // y SOLO DESPUÉS se congela y se avanza el ciclo. Antes, cerrar un nivel con "nuevo ciclo"
+  // no generaba informe y la tarjeta del panel se quedaba mostrando el nivel anterior.
+  await obtenerOCrearInforme(ordenNivel, previo[0].ciclo_actual);
+  await congelarInformesDeNivel(ordenNivel);
 
   const { rows } = await query(
     'UPDATE eventos SET ciclo_actual = ciclo_actual + 1, actualizado_en = now() WHERE orden = $1 RETURNING *',
     [req.params.orden]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
-  res.json({ mensaje: `Nuevo ciclo iniciado (ciclo #${rows[0].ciclo_actual}). Los contadores de este nivel arrancan de cero.`, evento: rows[0] });
+
+  // La promoción sigue al ciclo del Nivel IV (promoción 5 = ciclo 5): al cerrar el Nivel IV
+  // la promoción actual pasa a ser el nuevo ciclo, sin pasos manuales.
+  let promocion = null;
+  if (ordenNivel === 4) {
+    promocion = rows[0].ciclo_actual;
+    await query(
+      `INSERT INTO configuracion (clave, valor, actualizado_en) VALUES ('promocion_actual', $1, now())
+       ON CONFLICT (clave) DO UPDATE SET valor = $1, actualizado_en = now()`,
+      [String(promocion)]
+    );
+  }
+  res.json({
+    mensaje: `Nuevo ciclo iniciado (ciclo #${rows[0].ciclo_actual}). Los contadores de este nivel arrancan de cero.` +
+      (promocion ? ` Ahora se está cursando la Promoción ${promocion}.` : ''),
+    evento: rows[0], promocion_actual: promocion
+  });
 });
 
 // POST /api/admin/eventos/:orden/marcar-actual
@@ -307,6 +449,28 @@ router.post('/eventos/:orden/marcar-actual', requireSuperAdmin, async (req, res)
   );
   if (!rows[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
   res.json({ mensaje: `"${rows[0].nombre}" ahora es el evento actual.`, evento: rows[0] });
+});
+
+// POST /api/admin/eventos/:orden/finalizar
+// "Finalizar evento": cierra el registro de este nivel y le quita "evento actual", sin que
+// otro nivel lo reemplace todavía. Antes de soltarlo se asegura de que exista su informe de
+// cierre (mismo criterio que marcar-actual). Es reversible: se vuelve a "Marcar como evento
+// actual" y a habilitar el registro desde Eventos. No borra ningún dato.
+router.post('/eventos/:orden/finalizar', requireSuperAdmin, async (req, res) => {
+  const orden = parseInt(req.params.orden, 10);
+  const { rows: previo } = await query('SELECT * FROM eventos WHERE orden = $1', [orden]);
+  if (!previo[0]) return res.status(404).json({ error: 'Evento no encontrado.' });
+  if (!previo[0].es_actual) {
+    return res.status(400).json({ error: 'Este nivel no es el evento actual, no hay nada que finalizar.' });
+  }
+
+  await obtenerOCrearInforme(orden, previo[0].ciclo_actual);
+
+  const { rows } = await query(
+    'UPDATE eventos SET es_actual = FALSE, activo = FALSE, actualizado_en = now() WHERE orden = $1 RETURNING *',
+    [orden]
+  );
+  res.json({ mensaje: `"${rows[0].nombre}" fue finalizado: el registro quedó bloqueado y ya no es el evento actual.`, evento: rows[0] });
 });
 
 // GET /api/admin/informes/:token -> ver un informe de cierre (autenticado, desde el panel)
@@ -437,6 +601,13 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
   ]);
 
   const totalCicloActual = porEvento.rows.reduce((suma, e) => suma + e.total_ciclo_actual, 0);
+  // Menores y extranjeros (columnas de la migración 025). Si la migración todavía no se aplicó,
+  // no se rompe Estadísticas: simplemente no hay desglose.
+  let porTipo = [];
+  try {
+    porTipo = (await query('SELECT tipo_participante AS tipo, COUNT(*)::int AS total FROM participantes GROUP BY tipo_participante')).rows;
+  } catch { /* migración 025 pendiente */ }
+
   const eventoActual = porEvento.rows.find(e => e.es_actual) || null;
   const promocionActual = promocionRes.rows[0] ? parseInt(promocionRes.rows[0].valor, 10) : null;
 
@@ -469,6 +640,7 @@ router.get('/estadisticas', requireModulo('estadisticas', 'consulta'), async (re
     graduados_por_promocion: porPromocion.rows,
     total_graduados_nivel_4: totalGraduadosNivel4.rows[0].total,
     total_sin_requisitos: totalSinRequisitos.rows[0].total,
+    por_tipo: porTipo,
     ultimo_informe: ultimoInformeRes.rows[0] || null
   });
 });
@@ -782,7 +954,7 @@ router.get('/diplomas/:orden', requireModulo('diplomas', 'consulta'), async (req
   if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
 
   const { rows } = await query(
-    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec, i.registrado_en, i.fecha_graduacion
+    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec, p.departamento, p.municipio, i.registrado_en, i.fecha_graduacion
      FROM inscripciones i
      JOIN participantes p ON p.id = i.participante_id
      WHERE i.evento_id = $1 AND i.ciclo = $2 AND i.registrado_presencial = TRUE
@@ -795,7 +967,8 @@ router.get('/diplomas/:orden', requireModulo('diplomas', 'consulta'), async (req
   // suma al conteo — la tabla y las exportaciones (Excel/PDF/Imprimir) no cambian.
   const sin_requisitos = await contarSinRequisitos(evento.orden, evento.ciclo_actual);
 
-  res.json({ evento, total: rows.length, sin_requisitos, total_general: rows.length + sin_requisitos, participantes: rows });
+  const participantes = rows.map(r => ({ ...r, procedencia: procedenciaDe(r.departamento, r.municipio) }));
+  res.json({ evento, total: rows.length, sin_requisitos, total_general: rows.length + sin_requisitos, participantes });
 });
 
 // GET /api/admin/diplomas/:orden/excel -> descarga .xlsx con Numero, Nombre, Capítulo, Cargo
@@ -806,7 +979,7 @@ router.get('/diplomas/:orden/excel', requireModulo('diplomas', 'consulta'), asyn
   if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
 
   const { rows } = await query(
-    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec
+    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec, p.departamento, p.municipio
      FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
      WHERE i.evento_id = $1 AND i.ciclo = $2 AND i.registrado_presencial = TRUE
      ORDER BY p.nombre_completo ASC`,
@@ -817,11 +990,12 @@ router.get('/diplomas/:orden/excel', requireModulo('diplomas', 'consulta'), asyn
     '#': i + 1,
     'Nombre Completo': r.nombre_completo,
     'Capítulo': r.capitulo || '',
+    'Procedencia': procedenciaDe(r.departamento, r.municipio),
     'Cargo': r.cargo_fihnec || ''
   }));
 
   const hoja = xlsx.utils.json_to_sheet(datos);
-  hoja['!cols'] = [{ wch: 8 }, { wch: 36 }, { wch: 26 }, { wch: 30 }];
+  hoja['!cols'] = [{ wch: 8 }, { wch: 36 }, { wch: 26 }, { wch: 30 }, { wch: 30 }];
   const libro = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(libro, hoja, `Diplomas ${evento.codigo}`);
   const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
@@ -839,7 +1013,7 @@ router.get('/diplomas/:orden/pdf', requireModulo('diplomas', 'consulta'), async 
   if (!evento) return res.status(404).json({ error: 'Evento no encontrado.' });
 
   const { rows } = await query(
-    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec
+    `SELECT p.nombre_completo, p.capitulo, p.cargo_fihnec, p.departamento, p.municipio
      FROM inscripciones i JOIN participantes p ON p.id = i.participante_id
      WHERE i.evento_id = $1 AND i.ciclo = $2 AND i.registrado_presencial = TRUE
      ORDER BY p.nombre_completo ASC`,
@@ -856,14 +1030,15 @@ router.get('/diplomas/:orden/pdf', requireModulo('diplomas', 'consulta'), async 
   doc.fontSize(12).font('Helvetica').text(evento.nombre, { align: 'center' });
   doc.moveDown(1);
 
-  const colX = [50, 100, 420, 620];
-  const colW = [50, 300, 190, 170];
+  const colX = [50, 80, 300, 440, 610];
+  const colW = [30, 215, 135, 165, 140];
   const y0 = doc.y;
   doc.font('Helvetica-Bold').fontSize(10);
   doc.text('#', colX[0], y0, { width: colW[0] });
   doc.text('Nombre Completo', colX[1], y0, { width: colW[1] });
   doc.text('Capítulo', colX[2], y0, { width: colW[2] });
-  doc.text('Cargo', colX[3], y0, { width: colW[3] });
+  doc.text('Procedencia', colX[3], y0, { width: colW[3] });
+  doc.text('Cargo', colX[4], y0, { width: colW[4] });
   doc.moveDown(0.5);
   doc.moveTo(50, doc.y).lineTo(762, doc.y).strokeColor('#cccccc').stroke();
   doc.moveDown(0.3);
@@ -875,7 +1050,8 @@ router.get('/diplomas/:orden/pdf', requireModulo('diplomas', 'consulta'), async 
     doc.text(String(i + 1), colX[0], y, { width: colW[0] });
     doc.text(r.nombre_completo, colX[1], y, { width: colW[1] });
     doc.text(r.capitulo || '—', colX[2], y, { width: colW[2] });
-    doc.text(r.cargo_fihnec || '—', colX[3], y, { width: colW[3] });
+    doc.text(procedenciaDe(r.departamento, r.municipio) || '—', colX[3], y, { width: colW[3] });
+    doc.text(r.cargo_fihnec || '—', colX[4], y, { width: colW[4] });
     doc.moveDown(0.6);
   });
 

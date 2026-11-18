@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
-import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS } from '../listas';
+import { zonasDeDepartamento, zonaValidaPara, DEPARTAMENTOS_HONDURAS } from '../listas';
 
 const NIVELES = [
   { valor: 'todos', etiqueta: 'Todos los participantes' },
@@ -377,13 +377,13 @@ export default function AdminReportes() {
             <span className="mb-1 block text-ink/60">Zona (opcional)</span>
             <select value={zona} onChange={e => setZona(e.target.value)} className={claseSelect}>
               <option value="">Todas</option>
-              {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+              {zonasDeDepartamento(departamento, zona).map(z => <option key={z}>{z}</option>)}
             </select>
           </label>
 
           <label className="text-sm">
             <span className="mb-1 block text-ink/60">Departamento (opcional)</span>
-            <select value={departamento} onChange={e => setDepartamento(e.target.value)} className={claseSelect}>
+            <select value={departamento} onChange={e => { setDepartamento(e.target.value); setZona(zonaValidaPara(e.target.value, zona)); }} className={claseSelect}>
               <option value="">Todos</option>
               {DEPARTAMENTOS_HONDURAS.map(d => <option key={d}>{d}</option>)}
             </select>

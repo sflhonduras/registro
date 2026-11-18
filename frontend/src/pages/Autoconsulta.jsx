@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import { useConfirmar } from '../components/ConfirmProvider';
 import BotonVolver from '../components/BotonVolver';
 import { formatearFechaLarga } from '../fechas';
 
 const EMOJI_MEDALLA = { Bronce: '🥉', Plata: '🥈', Oro: '🥇', Platino: '🏆', 'Vuelta Completa': '🌟' };
 
 export default function Autoconsulta() {
+  const confirmar = useConfirmar();
   const [dni, setDni] = useState('');
   const [pin, setPin] = useState('');
   const [estado, setEstado] = useState(null);
@@ -39,6 +41,7 @@ export default function Autoconsulta() {
     setErrorPin(''); setMensajePin('');
     if (pinNuevo !== pinNuevoConfirmar) { setErrorPin('El nuevo PIN no coincide en ambos campos.'); return; }
     if (!/^\d{4}$/.test(pinNuevo)) { setErrorPin('El nuevo PIN debe tener exactamente 4 dígitos.'); return; }
+    if (!(await confirmar({ titulo: 'Cambiar PIN', mensaje: '¿Confirmas que quieres cambiar tu PIN? El anterior dejará de funcionar.', textoConfirmar: 'Sí, cambiar', textoCancelar: 'Revisar' }))) return;
     setGuardandoPin(true);
     try {
       await api.post('/autoconsulta/cambiar-pin', { dni, pin_actual: pinActual, pin_nuevo: pinNuevo });
@@ -66,9 +69,9 @@ export default function Autoconsulta() {
 
         <form onSubmit={consultar} autoComplete="off" className="mt-8 space-y-4">
           <input
-            required inputMode="numeric" name="identidad_participante" autoComplete="off" value={dni}
-            onChange={e => setDni(e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
-            placeholder="Número de identidad (DNI)"
+            required name="identidad_participante" autoComplete="off" value={dni}
+            onChange={e => setDni(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 20))}
+            placeholder="DNI, pasaporte o código (MEN-…)"
             className={claseInput}
           />
           <input

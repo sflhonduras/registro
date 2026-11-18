@@ -179,6 +179,9 @@ export default function AdminDashboard() {
             color={['#C9932F', '#F59D24', '#2F5D3A', '#9A6136'][i % 4]}
             onClick={() => nav(`/admin/reportes?evento=${e.orden}&alcance=ciclo_actual`)} />
         ))}
+        {(datos.por_tipo || []).filter(t => t.tipo !== 'nacional' && t.total > 0).map(t => (
+          <Tarjeta key={t.tipo} titulo={t.tipo === 'menor' ? 'Menores' : 'Extranjeros'} valor={t.total} nota="Registrados" color="#2F5D3A" />
+        ))}
       </div>
       <a
         href={`${api.defaults.baseURL}/admin/estadisticas/excel`}

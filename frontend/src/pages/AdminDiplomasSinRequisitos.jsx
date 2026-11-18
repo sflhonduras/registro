@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
 import { numeroARomano } from '../romano';
-import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
+import { zonasDeDepartamento, zonaValidaPara, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
 
 const VACIO = {
   nombre_completo: '', dni: '', celular: '', capitulo: '', zona: '', departamento: '', municipio: '',
@@ -68,6 +69,7 @@ function NivelesInscritos({ niveles, onEliminar }) {
 
 // Modal paso a paso: DNI -> (si existe, historial) -> formulario de datos que falten -> guardar
 function ModalRegistrar({ onCerrar, onGuardado }) {
+  const confirmar = useConfirmar();
   const [paso, setPaso] = useState('dni'); // 'dni' | 'historial' | 'formulario'
   const [esExtranjero, setEsExtranjero] = useState(false);
   const [dniConsulta, setDniConsulta] = useState('');
@@ -84,7 +86,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
   const [error, setError] = useState('');
 
   const set = (campo) => (e) => setForm(f => ({ ...f, [campo]: e.target.value }));
-  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '', zona: zonaValidaPara(e.target.value, f.zona) }));
   const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
 
   const verificarDni = async (e) => {
@@ -110,6 +112,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
   };
 
   const guardarNuevoDesdeExistente = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       const evento = eventoAsistido ? parseInt(eventoAsistido, 10) : null;
@@ -128,6 +131,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
 
   const guardarNuevoDesdeCero = async (e) => {
     e.preventDefault();
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       const evento = eventoAsistido ? parseInt(eventoAsistido, 10) : null;
@@ -256,7 +260,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
               <Campo label="Zona">
                 <select required className={claseInput} value={form.zona} onChange={set('zona')}>
                   <option value="">Selecciona…</option>
-                  {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+                  {zonasDeDepartamento(form.departamento, form.zona).map(z => <option key={z}>{z}</option>)}
                 </select>
               </Campo>
               <Campo label="Departamento">
@@ -325,6 +329,7 @@ function ModalRegistrar({ onCerrar, onGuardado }) {
 }
 
 function ModalEditar({ fila, onCerrar, onGuardado }) {
+  const confirmar = useConfirmar();
   const [niveles, setNiveles] = useState(fila.niveles || null);
   const [listoParaTrasladar, setListoParaTrasladar] = useState(fila.listo_para_trasladar || false);
   const [nota, setNota] = useState(fila.nota || '');
@@ -340,7 +345,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
     contacto_emergencia_nombre: fila.contacto_emergencia_nombre || '', contacto_emergencia_telefono: fila.contacto_emergencia_telefono || ''
   });
   const setDato = (campo) => (e) => setDatos(d => ({ ...d, [campo]: e.target.value }));
-  const cambiarDepartamentoDatos = (e) => setDatos(d => ({ ...d, departamento: e.target.value, municipio: '' }));
+  const cambiarDepartamentoDatos = (e) => setDatos(d => ({ ...d, departamento: e.target.value, municipio: '', zona: zonaValidaPara(e.target.value, d.zona) }));
   const municipiosDisponiblesDatos = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[datos.departamento] || [], [datos.departamento]);
 
   const refrescarNiveles = async () => {
@@ -351,6 +356,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
   useEffect(() => { refrescarNiveles(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const guardarNota = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       await api.put(`/admin/participantes-excepcion/${fila.id}`, { nota });
@@ -363,6 +369,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
   };
 
   const guardarDatos = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       await api.put(`/admin/participantes-excepcion/${fila.id}`, datos);
@@ -377,6 +384,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
 
   const agregarEvento = async () => {
     if (!evento) return;
+    if (!(await confirmar({ titulo: 'Agregar nivel', mensaje: `¿Agregar el Nivel ${evento} como "asistido sin diploma" a este registro?`, textoConfirmar: 'Sí, agregar', textoCancelar: 'Revisar' }))) return;
     setAgregandoEvento(true); setError('');
     try {
       await api.post(`/admin/participantes-excepcion/${fila.id}/eventos`, { orden: parseInt(evento, 10) });
@@ -390,7 +398,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
   };
 
   const eliminarEvento = async (orden) => {
-    if (!confirm(`¿Quitar el Nivel ${orden} de "asistido sin diploma"? Esto no afecta a la persona en ningún otro módulo, solo corrige este registro.`)) return;
+    if (!(await confirmar({ titulo: 'Quitar nivel', mensaje: `¿Quitar el Nivel ${orden} de "asistido sin diploma"? Esto no afecta a la persona en ningún otro módulo, solo corrige este registro.`, textoConfirmar: 'Sí, quitar', peligro: true }))) return;
     setAgregandoEvento(true); setError('');
     try {
       await api.delete(`/admin/participantes-excepcion/${fila.id}/eventos/${orden}`);
@@ -403,7 +411,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
   };
 
   const trasladar = async () => {
-    if (!confirm(`¿Confirmas que ${fila.nombre_completo} ya se puso al día y quieres trasladarlo a Participantes? Esto lo crea/actualiza en Participantes y lo quita de esta lista.`)) return;
+    if (!(await confirmar({ titulo: 'Trasladar a Participantes', mensaje: `¿Confirmas que ${fila.nombre_completo} ya se puso al día y quieres trasladarlo a Participantes? Esto lo crea/actualiza en Participantes y lo quita de esta lista.`, textoConfirmar: 'Sí, trasladar' }))) return;
     setGuardando(true); setError('');
     try {
       await api.post(`/admin/participantes-excepcion/${fila.id}/trasladar`);
@@ -440,7 +448,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
         <div className="mt-5">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-ink/70">Datos personales</p>
-            <button onClick={() => setEditandoDatos(v => !v)} className="text-sm font-semibold text-gold hover:underline">
+            <button onClick={async () => { if (editandoDatos && !(await confirmar(CONFIRM_CANCELAR))) return; setEditandoDatos(v => !v); }} className="text-sm font-semibold text-gold hover:underline">
               {editandoDatos ? 'Cancelar edición' : 'Editar datos'}
             </button>
           </div>
@@ -479,7 +487,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
               <Campo label="Zona" requerido={false}>
                 <select className={claseInput} value={datos.zona} onChange={setDato('zona')}>
                   <option value="">Selecciona…</option>
-                  {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+                  {zonasDeDepartamento(datos.departamento, datos.zona).map(z => <option key={z}>{z}</option>)}
                 </select>
               </Campo>
               <Campo label="Departamento" requerido={false}>
@@ -566,6 +574,7 @@ function ModalEditar({ fila, onCerrar, onGuardado }) {
 }
 
 export default function AdminDiplomasSinRequisitos() {
+  const confirmar = useConfirmar();
   const [datos, setDatos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [buscar, setBuscar] = useState('');
@@ -584,7 +593,7 @@ export default function AdminDiplomasSinRequisitos() {
   const buscarAhora = (e) => { e.preventDefault(); cargar(); };
 
   const eliminar = async (fila) => {
-    if (!confirm(`¿Eliminar el registro de ${fila.nombre_completo || fila.dni} de Participantes Sin Requisitos? (Se guarda en la papelera por si fue un error).`)) return;
+    if (!(await confirmar({ titulo: 'Eliminar registro', mensaje: `¿Eliminar el registro de ${fila.nombre_completo || fila.dni} de Participantes Sin Requisitos? (Se guarda en la papelera por si fue un error).`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     await api.delete(`/admin/participantes-excepcion/${fila.id}`);
     cargar();
   };

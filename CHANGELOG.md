@@ -1,5 +1,34 @@
 # Historial de versiones — Sistema SFL FIHNEC
 
+## v1.7.0 — 18 de noviembre de 2026
+- Participantes: ahora se pueden registrar menores de edad (sin DNI obligatorio; se les asigna un
+  código interno MEN-00001, con fecha de nacimiento y responsable) y extranjeros (identificados
+  con pasaporte), desde el panel y, en el caso de extranjeros, también desde el formulario público
+- Los formularios públicos y el portal de autoconsulta aceptan pasaporte; el Dashboard muestra
+  tarjetas de Menores y Extranjeros
+- Eventos: nuevo botón "Finalizar evento" (cierra el registro y genera el informe de cierre)
+- Zonas por Departamento: al elegir el departamento, la zona y el municipio muestran solo lo que
+  le corresponde; nueva columna "Procedencia" (Departamento, Municipio) en Participantes y Diplomas
+- Selector de fecha de tres listas (día / mes / año) en Servidores y Portal del Servidor
+- Todo botón de guardar o cancelar (panel, portal y formularios públicos) pide confirmación en un
+  modal; la graduación ahora se guarda con un botón explícito "Guardar graduación"
+
+## v1.6.0 — 18 de noviembre de 2026
+- Corregido: la "Promoción actual" del Dashboard ahora sigue al ciclo en curso (al abrir un nuevo
+  ciclo de Nivel IV se actualiza sola) y la tarjeta "Informe de cierre" muestra el informe del
+  Nivel IV más reciente; el informe se genera y congela al abrir el nuevo ciclo
+
+## v1.5.0 — 18 de noviembre de 2026
+- Página principal: actualizada la imagen del hero
+
+## v1.4.1 — 5 de septiembre de 2026
+- Corregido bug real: el Informe de Cierre podía quedar apuntando a datos de prueba
+  viejos si nunca se le daba "Nuevo Ciclo" al nivel
+- Corregido bug de orden de operaciones en "marcar-actual"
+- Restaurado el permiso de Eventos como exclusivo del Súper Administrador
+- Agregado "Cache-Control: no-store" en los endpoints de estadísticas y de
+  evento-actual-resumen
+
 ## v1.4.0 — 4 de septiembre de 2026
 - Auditoría del panel: las acciones sobre un participante (marcar Registrado, editar,
   eliminar, etc.) ahora muestran el nombre completo y el DNI de esa persona directo en el

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import { useConfirmar } from '../components/ConfirmProvider';
 import BotonVolver from '../components/BotonVolver';
 import InfoEvento from '../components/InfoEvento';
 import ProximasFechas from '../components/ProximasFechas';
 import PromoWhatsApp from '../components/PromoWhatsApp';
 
 export default function RegistroEventoN() {
+  const confirmar = useConfirmar();
   const { orden } = useParams();
   const [dni, setDni] = useState('');
   const [evento, setEvento] = useState(null);
@@ -22,6 +24,7 @@ export default function RegistroEventoN() {
   const enviar = async (e) => {
     e.preventDefault();
     setError(''); setExito('');
+    if (!(await confirmar({ titulo: 'Confirmar inscripción', mensaje: '¿Confirmas tu inscripción a este nivel?', textoConfirmar: 'Sí, inscribirme', textoCancelar: 'Revisar' }))) return;
     setEnviando(true);
     try {
       const r = await api.post(`/registro/${orden}`, { dni });
@@ -60,7 +63,7 @@ export default function RegistroEventoN() {
       <BotonVolver />
       <p className="text-center text-sm font-semibold uppercase tracking-widest text-gold">Nivel {orden}</p>
       <h1 className="mt-1 text-center font-display text-3xl font-bold text-ink">{evento ? evento.nombre : 'Cargando…'}</h1>
-      <p className="mt-2 text-center text-ink/60">Ingresa tu número de identidad (DNI) para verificar tu habilitación e inscribirte.</p>
+      <p className="mt-2 text-center text-ink/60">Ingresa tu DNI (o pasaporte si eres extranjero) para verificar tu habilitación e inscribirte.</p>
       {evento && <div className="mt-3 text-center"><InfoEvento evento={evento} /></div>}
 
       {exito ? (
@@ -72,10 +75,10 @@ export default function RegistroEventoN() {
       ) : (
         <form onSubmit={enviar} className="mt-8 space-y-4">
           <input
-            required inputMode="numeric"
+            required
             value={dni}
-            onChange={e => setDni(e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
-            placeholder="Número de identidad (DNI)"
+            onChange={e => setDni(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20))}
+            placeholder="DNI o número de pasaporte"
             className="w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-center text-lg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
           />
           {error && <p className="rounded-lg bg-ember/10 p-3 text-center text-sm text-ember">{error}</p>}

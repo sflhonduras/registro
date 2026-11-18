@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
+import SelectorFecha from '../components/SelectorFecha';
 import {
-  ZONAS_FIHNEC, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
+  zonasDeDepartamento, zonaValidaPara, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
   FORMACION_OFICIAL, OTRAS_PARTICIPACIONES, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO
 } from '../listas';
 
@@ -222,6 +224,7 @@ function CelebracionCumpleanos({ nombre, verso, onContinuar }) {
 }
 
 export default function PortalServidor() {
+  const confirmar = useConfirmar();
   const [params] = useSearchParams();
   const [dni, setDni] = useState(params.get('dni') || '');
   const [pin, setPin] = useState('');
@@ -257,6 +260,7 @@ export default function PortalServidor() {
     setErrorPin('');
     if (pinNuevo !== pinNuevoConfirmar) { setErrorPin('El nuevo PIN no coincide en ambos campos.'); return; }
     if (!/^\d{4}$/.test(pinNuevo)) { setErrorPin('El nuevo PIN debe tener exactamente 4 dígitos.'); return; }
+    if (!(await confirmar({ titulo: 'Cambiar PIN', mensaje: '¿Confirmas que quieres cambiar tu PIN? El anterior dejará de funcionar.', textoConfirmar: 'Sí, cambiar', textoCancelar: 'Revisar' }))) return;
     setGuardandoPin(true);
     try {
       await api.post('/servidor-portal/cambiar-pin', { dni, pin_actual: pinActual, pin_nuevo: pinNuevo });
@@ -578,10 +582,13 @@ function TarjetaAcceso({ icono, titulo, subtitulo, color = 'gold', onClick }) {
 // "Mis días de asistencia" NO navega a otro lado — se edita ahí mismo, en la tarjeta,
 // porque es la acción que más van a repetir y no vale la pena esconderla detrás de un clic.
 function TarjetaDiasInline({ perfil, setPerfil, credenciales }) {
+  const confirmar = useConfirmar();
   const [diasLocal, setDiasLocal] = useState(perfil.dias_asistencia);
   const [guardando, setGuardando] = useState(false);
 
   const toggleDia = async (dia) => {
+    const etiqueta = { viernes: 'Viernes', sabado: 'Sábado', domingo: 'Domingo' }[dia] || dia;
+    if (!(await confirmar({ titulo: 'Cambiar asistencia', mensaje: diasLocal[dia] ? `¿Desmarcar el ${etiqueta}? Dejarás de aparecer como asistente ese día.` : `¿Marcar el ${etiqueta} como día de asistencia?`, textoConfirmar: 'Sí, cambiar', textoCancelar: 'Revisar' }))) return;
     const nuevos = { ...diasLocal, [dia]: !diasLocal[dia] };
     setDiasLocal(nuevos);
     setGuardando(true);
@@ -648,6 +655,7 @@ function MultiSelect({ etiqueta, opciones, valores, onCambiar }) {
 // "Mis datos de contacto" ahora hala TODA la ficha personal (menos nombre, DNI, capítulo y
 // cargo, que siguen siendo oficiales) — nadie conoce estos datos mejor que el propio servidor.
 function TabDatos({ perfil, setPerfil, credenciales }) {
+  const confirmar = useConfirmar();
   const [editando, setEditando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -667,7 +675,7 @@ function TabDatos({ perfil, setPerfil, credenciales }) {
     otras_participaciones: perfil.otras_participaciones || []
   });
   const set = (campo) => (e) => setForm(f => ({ ...f, [campo]: e.target.value }));
-  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '', zona: zonaValidaPara(e.target.value, f.zona) }));
   const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
 
   const subirFoto = (e) => {
@@ -679,6 +687,7 @@ function TabDatos({ perfil, setPerfil, credenciales }) {
   };
 
   const guardarDatos = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError(''); setMensaje('');
     try {
       const { data } = await api.put('/servidor-portal/mis-datos', { ...credenciales(), ...form });
@@ -720,7 +729,7 @@ function TabDatos({ perfil, setPerfil, credenciales }) {
     <Tarjeta>
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Editar mis datos</p>
-        <button onClick={() => setEditando(false)}
+        <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) setEditando(false); }}
           className="rounded-full border border-ink/20 bg-ink/5 px-4 py-1.5 text-sm font-semibold text-ink/70 transition hover:bg-ink/10">Cancelar</button>
       </div>
 
@@ -743,7 +752,10 @@ function TabDatos({ perfil, setPerfil, credenciales }) {
         </select>
         <input value={form.hijos_cantidad} onChange={set('hijos_cantidad')} type="number" min="0" placeholder="Cantidad de hijos" className={claseCampo} />
 
-        <input value={form.fecha_nacimiento} onChange={set('fecha_nacimiento')} type="date" className={claseCampo} />
+        <div>
+          <span className="mb-1 block text-xs text-ink/50">Fecha de nacimiento</span>
+          <SelectorFecha value={form.fecha_nacimiento} onChange={(v) => setForm(f => ({ ...f, fecha_nacimiento: v }))} className={claseCampo} />
+        </div>
         <input value={form.profesion} onChange={set('profesion')} placeholder="Profesión" className={claseCampo} />
 
         <input value={form.nombre_esposa} onChange={set('nombre_esposa')} placeholder="Nombre de la esposa (si aplica)" className={claseCampo} />
@@ -754,7 +766,7 @@ function TabDatos({ perfil, setPerfil, credenciales }) {
 
         <select value={form.zona} onChange={set('zona')} className={claseCampo}>
           <option value="">Zona…</option>
-          {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+          {zonasDeDepartamento(form.departamento, form.zona).map(z => <option key={z}>{z}</option>)}
         </select>
         <select value={form.tipo_testimonio} onChange={set('tipo_testimonio')} className={claseCampo}>
           <option value="">Tipo de testimonio…</option>
@@ -874,6 +886,7 @@ function TabTransporte({ credenciales }) {
 // asignado como responsable de ella (lo decide Carlos en el panel). Las demás siempre son
 // de solo lectura, sin importar cuál sea.
 function TabInventario({ credenciales }) {
+  const confirmar = useConfirmar();
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [guardandoId, setGuardandoId] = useState(null);
@@ -892,6 +905,7 @@ function TabInventario({ credenciales }) {
   useEffect(() => { cargar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const guardarItem = async (itemId) => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardandoId(itemId);
     try {
       await api.put(`/servidor-portal/inventario/${itemId}`, { ...credenciales(), cantidad_actual: valoresLocal[itemId] });

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
 import { formatearFechaLarga, formatearHora12 } from '../fechas';
 import { DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO } from '../listas';
 
@@ -9,6 +10,7 @@ function textoUbicacion(t) {
 }
 
 function TarjetaTransporte({ t, servidores, tipos, soloLectura, onGuardar, onEliminar, onAgregarPasajero, onQuitarPasajero }) {
+  const confirmar = useConfirmar();
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState({
     conductor_id: t.conductor_id || '', tipo_vehiculo_id: t.tipo_vehiculo_id,
@@ -20,6 +22,7 @@ function TarjetaTransporte({ t, servidores, tipos, soloLectura, onGuardar, onEli
   const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
 
   const guardar = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     await onGuardar(t.id, form);
     setEditando(false);
   };
@@ -102,7 +105,7 @@ function TarjetaTransporte({ t, servidores, tipos, soloLectura, onGuardar, onEli
           </label>
           <div className="flex items-end gap-2">
             <button onClick={guardar} className="rounded-full bg-gold px-4 py-1.5 text-xs font-semibold text-night hover:bg-gold-light">Guardar</button>
-            <button onClick={() => setEditando(false)} className="rounded-full border border-ink/15 px-4 py-1.5 text-xs text-ink/50 hover:bg-ink/5">Cancelar</button>
+            <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) setEditando(false); }} className="rounded-full border border-ink/15 px-4 py-1.5 text-xs text-ink/50 hover:bg-ink/5">Cancelar</button>
           </div>
         </div>
       )}
@@ -133,6 +136,7 @@ function TarjetaTransporte({ t, servidores, tipos, soloLectura, onGuardar, onEli
 }
 
 export default function AdminTransporte() {
+  const confirmar = useConfirmar();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [nivelTransporte, setNivelTransporte] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
   const soloLectura = nivelTransporte !== 'edicion';
@@ -194,7 +198,7 @@ export default function AdminTransporte() {
   };
 
   const eliminarTransporte = async (id) => {
-    if (!confirm('¿Eliminar este transporte?')) return;
+    if (!(await confirmar({ titulo: 'Eliminar transporte', mensaje: '¿Eliminar este transporte?', textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     try {
       await api.delete(`/admin/transporte/transportes/${id}`);
       cargar();

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
 import { query } from '../db.js';
-import { soloDigitos } from '../texto.js';
+import { normalizarIdentificacion } from '../identificacion.js';
 import { verificarPin, cambiarPin } from '../pinSeguridad.js';
 
 const router = Router();
@@ -99,7 +99,7 @@ async function construirEstado(participante) {
 
 // POST /api/autoconsulta/consultar  body: { dni, pin }
 router.post('/consultar', async (req, res) => {
-  const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
+  const dni = normalizarIdentificacion((req.body || {}).dni);
   const pin = (req.body || {}).pin;
 
   const resultado = await verificarPin('participantes', dni, pin);
@@ -111,7 +111,7 @@ router.post('/consultar', async (req, res) => {
 
 // POST /api/autoconsulta/cambiar-pin  body: { dni, pin_actual, pin_nuevo }
 router.post('/cambiar-pin', async (req, res) => {
-  const dni = soloDigitos((req.body || {}).dni) || String((req.body || {}).dni || '').trim();
+  const dni = normalizarIdentificacion((req.body || {}).dni);
   const pinActual = (req.body || {}).pin_actual;
   const pinNuevo = String((req.body || {}).pin_nuevo || '').trim();
   if (!/^\d{4}$/.test(pinNuevo)) return res.status(400).json({ error: 'El nuevo PIN debe tener exactamente 4 dígitos.' });

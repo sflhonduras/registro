@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
 
 function BadgeCantidad({ item, soloLectura, onCambiar }) {
   const bajoUmbral = item.umbral_alerta != null && item.tipo_medida !== 'estado' &&
@@ -47,6 +48,7 @@ function BadgeCantidad({ item, soloLectura, onCambiar }) {
 }
 
 function FormularioNuevoItem({ onCrear, taller }) {
+  const confirmar = useConfirmar();
   const [abierto, setAbierto] = useState(false);
   const [nombre, setNombre] = useState('');
   const [tipoMedida, setTipoMedida] = useState('unidades');
@@ -55,6 +57,7 @@ function FormularioNuevoItem({ onCrear, taller }) {
 
   const crear = async () => {
     if (!nombre.trim()) return;
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     await onCrear({ nombre, tipo_medida: tipoMedida, tipo_material: tipoMaterial || null, umbral_alerta: umbral || null });
     setNombre(''); setTipoMaterial(''); setUmbral(''); setAbierto(false);
   };
@@ -92,7 +95,7 @@ function FormularioNuevoItem({ onCrear, taller }) {
         </label>
       )}
       <button onClick={crear} className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-night hover:bg-gold-light">Guardar</button>
-      <button onClick={() => setAbierto(false)} className="rounded-full border border-ink/15 px-3 py-1.5 text-xs text-ink/50 hover:bg-ink/5">Cancelar</button>
+      <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) setAbierto(false); }} className="rounded-full border border-ink/15 px-3 py-1.5 text-xs text-ink/50 hover:bg-ink/5">Cancelar</button>
     </div>
   );
 }
@@ -199,6 +202,7 @@ function TarjetaConferencia({ conferencia, servidores, soloLectura, onGuardarRes
 }
 
 export default function AdminInventario() {
+  const confirmar = useConfirmar();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [nivelInventario, setNivelInventario] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
   const soloLectura = nivelInventario !== 'edicion';
@@ -278,7 +282,7 @@ export default function AdminInventario() {
   };
 
   const eliminarItem = async (itemId) => {
-    if (!confirm('¿Eliminar este ítem del inventario?')) return;
+    if (!(await confirmar({ titulo: 'Eliminar ítem', mensaje: '¿Eliminar este ítem del inventario?', textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     try {
       await api.delete(`/admin/inventario/items/${itemId}`);
       cargar();

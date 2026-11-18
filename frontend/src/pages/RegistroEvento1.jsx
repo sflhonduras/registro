@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { mensajeError } from '../api';
+import { useConfirmar } from '../components/ConfirmProvider';
 import BotonVolver from '../components/BotonVolver';
 import CampoBuscable from '../components/CampoBuscable';
 import InfoEvento from '../components/InfoEvento';
 import ProximasFechas from '../components/ProximasFechas';
 import PromoWhatsApp from '../components/PromoWhatsApp';
-import { ZONAS_FIHNEC, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
+import { zonasDeDepartamento, zonaValidaPara, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO, CARGOS_FIHNEC } from '../listas';
 
 const VACIO = {
   nombre_completo: '', dni: '', celular: '', capitulo: '', zona: '', departamento: '', municipio: '',
@@ -53,8 +54,10 @@ const claseInput = "w-full rounded-lg border border-ink/15 bg-white px-3.5 py-2.
 const claseInputDeshabilitado = "w-full rounded-lg border border-ink/10 bg-ink/5 px-3.5 py-2.5 text-ink/40 outline-none cursor-not-allowed";
 
 export default function RegistroEvento1() {
+  const confirmar = useConfirmar();
   const [paso, setPaso] = useState('dni'); // 'dni' | 'decision' | 'formulario'
   const [dniConsulta, setDniConsulta] = useState('');
+  const [esExtranjero, setEsExtranjero] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [errorDni, setErrorDni] = useState('');
   const [participanteExistente, setParticipanteExistente] = useState(null);
@@ -77,7 +80,7 @@ export default function RegistroEvento1() {
     const v = e.target.value.replace(/[^\d]/g, '').slice(0, maxLen);
     setForm(f => ({ ...f, [campo]: v }));
   };
-  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '', zona: zonaValidaPara(e.target.value, f.zona) }));
   const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
 
   const verificarDni = async (e) => {
@@ -95,17 +98,18 @@ export default function RegistroEvento1() {
         setPaso('decision');
       }
     } catch {
-      setErrorDni('No se pudo verificar tu DNI. Intenta de nuevo.');
+      setErrorDni('No se pudo verificar tu identificación. Intenta de nuevo.');
     } finally {
       setVerificando(false);
     }
   };
 
   const elegirNoActualizar = async () => {
+    if (!(await confirmar({ titulo: 'Confirmar inscripción', mensaje: '¿Confirmas tu inscripción con los datos que ya tenemos registrados?', textoConfirmar: 'Sí, inscribirme', textoCancelar: 'Revisar' }))) return;
     setActualizarDatos(false);
     setEnviando(true); setError('');
     try {
-      const r = await api.post('/registro/evento1', { dni: participanteExistente.dni, actualizar_datos: false });
+      const r = await api.post('/registro/evento1', { dni: participanteExistente.dni, actualizar_datos: false, ...(esExtranjero ? { es_extranjero: true } : {}) });
       setExito(r.data.mensaje);
       setPinAsignado(r.data.pin || null);
     } catch (err) {
@@ -124,10 +128,12 @@ export default function RegistroEvento1() {
   const enviar = async (e) => {
     e.preventDefault();
     setError('');
+    if (!(await confirmar({ titulo: 'Enviar inscripción', mensaje: '¿Confirmas que tus datos están correctos y quieres enviar tu inscripción?', textoConfirmar: 'Sí, enviar', textoCancelar: 'Revisar' }))) return;
     setEnviando(true);
     try {
       const payload = {
         ...form,
+        ...(esExtranjero ? { es_extranjero: true } : {}),
         tiempo_comparte_testimonio: form.comparte_testimonio === 'Si'
           ? `${form.tiempo_comparte_cantidad} ${form.tiempo_comparte_unidad}`
           : null,
@@ -194,11 +200,18 @@ export default function RegistroEvento1() {
 
         <form onSubmit={verificarDni} className="mt-8 space-y-4">
           <input
-            required inputMode="numeric" value={dniConsulta}
-            onChange={e => setDniConsulta(e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
-            placeholder="Número de identidad (DNI)"
+            required inputMode={esExtranjero ? 'text' : 'numeric'} value={dniConsulta}
+            onChange={e => setDniConsulta(esExtranjero
+              ? e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20)
+              : e.target.value.replace(/[^\d]/g, '').slice(0, 13))}
+            placeholder={esExtranjero ? 'Número de pasaporte' : 'Número de identidad (DNI)'}
             className="w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-center text-lg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
           />
+          <label className="flex cursor-pointer items-center justify-center gap-2 text-sm text-ink/70">
+            <input type="checkbox" checked={esExtranjero}
+              onChange={e => { setEsExtranjero(e.target.checked); setDniConsulta(''); }} />
+            🌎 Soy extranjero (me identifico con pasaporte)
+          </label>
           {errorDni && <p className="rounded-lg bg-ember/10 p-3 text-center text-sm text-ember">{errorDni}</p>}
           <button disabled={verificando} className="w-full rounded-full bg-gold py-3.5 font-semibold text-night transition hover:bg-gold-light disabled:opacity-60">
             {verificando ? 'Verificando…' : 'Continuar'}
@@ -273,7 +286,7 @@ export default function RegistroEvento1() {
           <Campo label="Zona">
             <select required className={claseInput} value={form.zona} onChange={set('zona')}>
               <option value="">Selecciona…</option>
-              {ZONAS_FIHNEC.map(z => <option key={z}>{z}</option>)}
+              {zonasDeDepartamento(form.departamento, form.zona).map(z => <option key={z}>{z}</option>)}
             </select>
           </Campo>
           <Campo label="Departamento">

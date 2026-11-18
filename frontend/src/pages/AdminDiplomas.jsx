@@ -45,6 +45,7 @@ export default function AdminDiplomas() {
         <td>${i + 1}</td>
         <td>${p.nombre_completo}</td>
         <td>${p.capitulo || '—'}</td>
+        <td>${p.procedencia || '—'}</td>
         <td>${p.cargo_fihnec || '—'}</td>
       </tr>`).join('');
     const html = `
@@ -61,7 +62,7 @@ export default function AdminDiplomas() {
         <h1>FIHNEC · Seminario para la Formación de Líderes</h1>
         <h2>${eventoActual.nombre} — ${datos.total} participante(s)</h2>
         <table>
-          <thead><tr><th>#</th><th>Nombre Completo</th><th>Capítulo</th><th>Cargo</th></tr></thead>
+          <thead><tr><th>#</th><th>Nombre Completo</th><th>Capítulo</th><th>Procedencia</th><th>Cargo</th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
         <script>window.onload = () => { window.print(); }</script>
@@ -134,6 +135,7 @@ export default function AdminDiplomas() {
               <th className="w-16 px-4 py-3">#</th>
               <th className="px-4 py-3">Nombre Completo</th>
               <th className="px-4 py-3">Capítulo</th>
+              <th className="px-4 py-3">Procedencia</th>
               <th className="px-4 py-3">Cargo</th>
             </tr>
           </thead>
@@ -143,11 +145,12 @@ export default function AdminDiplomas() {
                 <td className="px-4 py-2.5 text-ink/50">{i + 1}</td>
                 <td className="px-4 py-2.5 font-medium text-ink">{p.nombre_completo}</td>
                 <td className="px-4 py-2.5 text-ink/60">{p.capitulo || '—'}</td>
+                <td className="px-4 py-2.5 text-ink/60">{p.procedencia || '—'}</td>
                 <td className="px-4 py-2.5 text-ink/60">{p.cargo_fihnec || '—'}</td>
               </tr>
             ))}
             {datos?.participantes.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-ink/40">Todavía no hay participantes marcados como "Registrado" en el ciclo actual de este nivel.</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink/40">Todavía no hay participantes marcados como "Registrado" en el ciclo actual de este nivel.</td></tr>
             )}
           </tbody>
         </table>

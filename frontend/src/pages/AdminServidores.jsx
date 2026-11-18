@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import api, { mensajeError } from '../api';
+import { useConfirmar, CONFIRM_GUARDAR, CONFIRM_CANCELAR } from '../components/ConfirmProvider';
+import SelectorFecha from '../components/SelectorFecha';
 import {
-  ZONAS_FIHNEC, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
+  zonasDeDepartamento, zonaValidaPara, CARGOS_FIHNEC, ESTADOS_CIVILES, TIPOS_TESTIMONIO,
   FORMACION_OFICIAL, OTRAS_PARTICIPACIONES, DEPARTAMENTOS_HONDURAS, MUNICIPIOS_POR_DEPARTAMENTO
 } from '../listas';
 
@@ -29,6 +31,7 @@ function esCumpleanosEsteMes(fechaNacimiento) {
 }
 
 function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
+  const confirmar = useConfirmar();
   const [form, setForm] = useState({
     cargos_desempenados: [], formacion_oficial: [], otras_participaciones: [],
     dias_asistencia: { viernes: true, sabado: true, domingo: true },
@@ -40,6 +43,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const [error, setError] = useState('');
 
   const guardar = async () => {
+    if (!(await confirmar(CONFIRM_GUARDAR))) return;
     setGuardando(true); setError('');
     try {
       let id = form.id;
@@ -58,7 +62,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const toggleDia = (dia) => setForm(f => ({ ...f, dias_asistencia: { ...f.dias_asistencia, [dia]: !f.dias_asistencia[dia] } }));
 
   const set = (clave) => (e) => setForm(f => ({ ...f, [clave]: e.target.value }));
-  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '' }));
+  const cambiarDepartamento = (e) => setForm(f => ({ ...f, departamento: e.target.value, municipio: '', zona: zonaValidaPara(e.target.value, f.zona) }));
   const municipiosDisponibles = useMemo(() => MUNICIPIOS_POR_DEPARTAMENTO[form.departamento] || [], [form.departamento]);
 
   const campo = (clave, etiqueta, tipo = 'text') => (
@@ -147,7 +151,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
   const [regenerandoPin, setRegenerandoPin] = useState(false);
   const regenerarPin = async () => {
     if (!form.id) return; // solo aplica a servidores ya guardados
-    if (!confirm('¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato, y se le pedirá que lo personalice en su próximo ingreso.')) return;
+    if (!(await confirmar({ titulo: 'Generar PIN nuevo', mensaje: '¿Generar un PIN nuevo? El anterior dejará de funcionar de inmediato, y se le pedirá que lo personalice en su próximo ingreso.', textoConfirmar: 'Sí, generar', peligro: true }))) return;
     setRegenerandoPin(true);
     try {
       const { data } = await api.post(`/admin/servidores/${form.id}/regenerar-pin`);
@@ -210,7 +214,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
           {campo('dni', 'DNI')}
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Fecha de nacimiento {edad !== null && <span className="text-ink/40">({edad} años)</span>}</span>
-            <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_nacimiento ? String(form.fecha_nacimiento).slice(0, 10) : ''} onChange={set('fecha_nacimiento')} />
+            <SelectorFecha className="w-full rounded-lg border border-ink/15 px-2 py-2" value={form.fecha_nacimiento ? String(form.fecha_nacimiento).slice(0, 10) : ''} onChange={(v) => setForm(f => ({ ...f, fecha_nacimiento: v }))} />
           </label>
           {selectSimple('estado_civil', 'Estado civil', ESTADOS_CIVILES)}
           {campo('nombre_esposa', 'Nombre de la esposa (si aplica)')}
@@ -225,7 +229,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
         <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-gold">Datos Organizacionales</p>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           {campo('capitulo', 'Capítulo')}
-          {selectSimple('zona', 'Zona', ZONAS_FIHNEC)}
+          {selectSimple('zona', 'Zona', zonasDeDepartamento(form.departamento, form.zona))}
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Departamento</span>
             <select className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.departamento ?? ''} onChange={cambiarDepartamento}>
@@ -242,7 +246,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-ink/60">Fecha de inscripción al capítulo</span>
-            <input type="date" className="w-full rounded-lg border border-ink/15 px-3 py-2" value={form.fecha_inscripcion_capitulo ? String(form.fecha_inscripcion_capitulo).slice(0, 10) : ''} onChange={set('fecha_inscripcion_capitulo')} />
+            <SelectorFecha aniosAtras={60} className="w-full rounded-lg border border-ink/15 px-2 py-2" value={form.fecha_inscripcion_capitulo ? String(form.fecha_inscripcion_capitulo).slice(0, 10) : ''} onChange={(v) => setForm(f => ({ ...f, fecha_inscripcion_capitulo: v }))} />
           </label>
           {campo('tiempo_fihnec', 'Tiempo en FIHNEC (ej. "5 años")')}
           {selectSimple('cargo_actual', 'Cargo actual', CARGOS_FIHNEC)}
@@ -288,7 +292,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
         {error && <p className="mt-4 rounded-lg bg-ember/10 p-3 text-sm text-ember">{error}</p>}
 
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onCerrar} className="rounded-full px-5 py-2 text-sm font-medium text-ink/60 hover:bg-ink/5">Cancelar</button>
+          <button onClick={async () => { if (await confirmar(CONFIRM_CANCELAR)) onCerrar(); }} className="rounded-full px-5 py-2 text-sm font-medium text-ink/60 hover:bg-ink/5">Cancelar</button>
           <button onClick={guardar} disabled={guardando} className="rounded-full bg-gold px-6 py-2 text-sm font-semibold text-night hover:bg-gold-light">
             {guardando ? 'Guardando…' : 'Guardar'}
           </button>
@@ -299,6 +303,7 @@ function ModalEditarServidor({ servidor, onCerrar, onGuardado }) {
 }
 
 export default function AdminServidores() {
+  const confirmar = useConfirmar();
   const usuario = JSON.parse(localStorage.getItem('sfl_user') || 'null');
   const [nivelServidores, setNivelServidores] = useState(usuario?.rol === 'super_admin' ? 'edicion' : null);
   const soloLectura = nivelServidores !== 'edicion';
@@ -356,13 +361,13 @@ export default function AdminServidores() {
   };
 
   const eliminar = async (s) => {
-    if (!confirm(`¿Eliminar a ${s.nombre_completo} de la lista de servidores?`)) return;
+    if (!(await confirmar({ titulo: 'Eliminar servidor', mensaje: `¿Eliminar a ${s.nombre_completo} de la lista de servidores?`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     await api.delete(`/admin/servidores/${s.id}`);
     cargar();
   };
 
   const reiniciarParticipacion = async () => {
-    if (!confirm('¿Volver a marcar los 3 días (Viernes/Sábado/Domingo) de TODOS los servidores? Esto no borra a nadie, solo reinicia los checkboxes a marcados.')) return;
+    if (!(await confirmar({ titulo: 'Reiniciar participación', mensaje: '¿Volver a marcar los 3 días (Viernes/Sábado/Domingo) de TODOS los servidores? Esto no borra a nadie, solo reinicia los checkboxes a marcados.', textoConfirmar: 'Sí, reiniciar' }))) return;
     setReiniciando(true);
     try {
       await api.post('/admin/servidores/reiniciar-participacion');

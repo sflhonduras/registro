@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../api';
+import { useConfirmar } from '../components/ConfirmProvider';
 import { VERSION, FECHA_VERSION } from '../version';
 
 export default function AdminMantenimiento() {
+  const confirmar = useConfirmar();
   const [resumen, setResumen] = useState(null);
   const [descargando, setDescargando] = useState('');
   const [error, setError] = useState('');
@@ -69,8 +71,8 @@ export default function AdminMantenimiento() {
       ? `MODO ADITIVO — no se borra nada, solo se agrega lo que falte:\n\n${resumenTexto}\n\n¿Confirmas que quieres aplicar esto?`
       : `⚠️ MODO REEMPLAZO COMPLETO — esto va a BORRAR todo lo que no esté en el archivo, y lo reemplaza con el contenido del respaldo:\n\n${resumenTexto}\n\nEsta acción no se puede deshacer. ¿Estás completamente seguro?`;
 
-    if (!confirm(mensajeConfirmacion)) return;
-    if (modoRestaurar === 'reemplazo' && !confirm('Última confirmación: se van a BORRAR los registros que no estén en el archivo. ¿Continuar de todas formas?')) return;
+    if (!(await confirmar({ titulo: 'Restaurar respaldo', mensaje: mensajeConfirmacion, textoConfirmar: 'Sí, aplicar', peligro: modoRestaurar === 'reemplazo' }))) return;
+    if (modoRestaurar === 'reemplazo' && !(await confirmar({ titulo: 'Última confirmación', mensaje: 'Se van a BORRAR los registros que no estén en el archivo. ¿Continuar de todas formas?', textoConfirmar: 'Sí, borrar y reemplazar', peligro: true }))) return;
 
     setCargandoRestaurar(true); setErrorRestaurar(''); setExitoRestaurar('');
     setSegundosAplicando(0);
@@ -101,7 +103,7 @@ export default function AdminMantenimiento() {
   };
 
   const restaurar = async (item) => {
-    if (!confirm(`¿Restaurar "${item.resumen}"? Va a volver a aparecer en el sistema tal como estaba.`)) return;
+    if (!(await confirmar({ titulo: 'Restaurar de la papelera', mensaje: `¿Restaurar "${item.resumen}"? Va a volver a aparecer en el sistema tal como estaba.`, textoConfirmar: 'Sí, restaurar' }))) return;
     setAccionandoId(item.id); setMensajePapelera('');
     try {
       await api.post(`/admin/mantenimiento/papelera/${item.id}/restaurar`);
@@ -115,7 +117,7 @@ export default function AdminMantenimiento() {
   };
 
   const purgar = async (item) => {
-    if (!confirm(`¿Eliminar "${item.resumen}" de la papelera de forma DEFINITIVA? Esto ya no se puede deshacer.`)) return;
+    if (!(await confirmar({ titulo: 'Eliminar definitivamente', mensaje: `¿Eliminar "${item.resumen}" de la papelera de forma DEFINITIVA? Esto ya no se puede deshacer.`, textoConfirmar: 'Sí, eliminar', peligro: true }))) return;
     setAccionandoId(item.id);
     try {
       await api.delete(`/admin/mantenimiento/papelera/${item.id}`);

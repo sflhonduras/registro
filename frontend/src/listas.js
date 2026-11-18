@@ -138,3 +138,46 @@ export const OTRAS_PARTICIPACIONES = [
   "Encuentros Zonales", "Encuentros Nacionales", "Convenciones Nacionales", "Convención Internacional",
   "Vigilias de Capítulo", "Vigilias de Equipo", "Vigilias Zonales"
 ];
+
+// Qué Zonas corresponden a cada Departamento (mismo criterio que SAEL, según el Excel
+// "Zonas de Inscripciones Hombres y Damas"). Se usa para que, al elegir un Departamento,
+// el selector de Zona muestre solo las zonas de ese departamento — igual que ya pasa con
+// Municipio. "Gracias a Dios" no tiene zona asignada: ahí se muestra el catálogo completo.
+// SFL Damas cambia SOLO este bloque (y ZONAS_FIHNEC) para sus propias zonas.
+export const ZONAS_POR_DEPARTAMENTO = {
+  "Atlántida": ["Atlántica 1", "Atlántica 2"],
+  "Choluteca": ["Sur a"],
+  "Colón": ["Aguán 2"],
+  "Comayagua": ["Centro Occidente 1", "Centro Occidente 4"],
+  "Copán": ["Occidente 1", "Occidente 5"],
+  "Cortés": ["Norte 1", "Norte 2", "Norte 3"],
+  "El Paraíso": ["Oriental 2"],
+  "Francisco Morazán": ["Central 1a", "Central 1b", "Central 2", "Central 3", "Central 4"],
+  "Intibucá": ["Centro Occidente 3"],
+  "Islas de la Bahía": ["Atlántica Insular"],
+  "La Paz": ["Centro Occidente 2a", "Centro Occidente 2b"],
+  "Lempira": ["Occidente 3", "Occidente 4a", "Occidente 4b"],
+  "Ocotepeque": ["Occidente 2"],
+  "Olancho": ["Oriental 1a", "Oriental 1b", "Oriental 1c"],
+  "Santa Bárbara": ["Nor Occidente"],
+  "Valle": ["Sur a"],
+  "Yoro": ["Aguán 1", "Aguán 3", "Norte 4"],
+};
+
+// Zonas que se ofrecen para un departamento. Sin departamento elegido (o sin zonas asignadas)
+// → catálogo completo. Si la persona ya tenía una zona guardada que no está en la lista, se
+// conserva como opción para no perderla al editar.
+export function zonasDeDepartamento(departamento, zonaActual = '') {
+  const base = departamento ? (ZONAS_POR_DEPARTAMENTO[departamento] || ZONAS_FIHNEC) : ZONAS_FIHNEC;
+  return zonaActual && !base.includes(zonaActual) ? [...base, zonaActual] : base;
+}
+
+// Al cambiar de departamento, la zona se conserva solo si todavía es válida; si no, se limpia.
+export function zonaValidaPara(departamento, zona) {
+  return zona && zonasDeDepartamento(departamento).includes(zona) ? zona : '';
+}
+
+// "Procedencia" = Departamento, Municipio (para tablas, Diplomas y reportes).
+export function procedenciaDe(departamento, municipio) {
+  return departamento ? `${departamento}${municipio ? ', ' + municipio : ''}` : '';
+}
